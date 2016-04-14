@@ -33,24 +33,39 @@ def parseSAM(f, out):
   line = f.readline().rstrip()
   while line:
 
-    if line[0] is not '@':
-      spl = line.split('\t')
-      if len(spl) < 11:
-        print 'Error! Poorly formatted SAM record:\n%s' % line
-        sys.exit(-1)
+    # skip header
+    if line[0] == '@':
+      line = f.readline().rstrip()
+      continue
 
-      if spl[0] not in headers:
-        try:
-          # rev-comp if necessary
-          spl[1] = int(spl[1])
-          if spl[1] & 0x10:
-            spl[9] = revComp(spl[9])
-            spl[10] = spl[10][::-1]
-        except ValueError:
-          print 'Error parsing FLAG in %s' % line
-          sys.exit(-1)
-        out.write('@%s\n%s\n+\n%s\n' % (spl[0], spl[9], spl[10]))
-        headers[spl[0]] = 1
+    spl = line.split('\t')
+    if len(spl) < 11:
+      print 'Error! Poorly formatted SAM record:\n', line
+      sys.exit(-1)
+
+    # skip duplicates
+    if spl[0] in headers:
+      line = f.readline().rstrip()
+      continue
+
+    # get FLAG
+    try:
+      spl[1] = int(spl[1])
+    except ValueError:
+      print 'Error parsing FLAG in SAM record:\n', line
+      sys.exit(-1)
+
+    # skip if secondary or supplementary
+    if spl[1] & 0x900:
+      line = f.readline().rstrip()
+      continue
+
+    # rev-comp if necessary
+    if spl[1] & 0x10:
+      spl[9] = revComp(spl[9])
+      spl[10] = spl[10][::-1]
+    out.write('@%s\n%s\n+\n%s\n' % (spl[0], spl[9], spl[10]))
+    headers[spl[0]] = 1
 
     line = f.readline().rstrip()
 
@@ -66,10 +81,10 @@ def main():
   try:
     f = open(args[0], 'rU')
   except IOError:
-    if args[0] is '-':
+    if args[0] == '-':
       f = sys.stdin
     else:
-      print 'Error! Cannot open %s' % args[0]
+      print 'Error! Cannot open', args[0]
       sys.exit(-1)
   out = open(args[1], 'w')
 
