@@ -6,29 +6,74 @@
 # Combine paired-end alignments.
 
 import sys
+import re
 
 def usage():
-  print 'Usage: python SAMtoBED.py  [options]  <input>  <output>  \n\
-    <input>     SAM file, or \'-\' for stdin                      \n\
+  print "Usage: python SAMtoBED.py  [options]  <input>  <output>  \n\
+    <input>     SAM file, or '-' for stdin                        \n\
     <output>    BED file                                          \n\
   Options for unpaired alignments:                                \n\
     -n        Do not print unpaired alignments (default)          \n\
     -y        Print unpaired alignments                           \n\
     -a <int>  Print unpaired alignments, with read length         \n\
-                increased to specified value'
+                increased to specified value"
   sys.exit(-1)
 
-def parseSAM(f, out, add):
+def loadChrLen(line, chr):
+  '''
+  Load chromosome lengths from the SAM file header.
+  '''
+  match = re.search(r'@SQ\s+SN:(\S+)\s+LN:(\d+)', line)
+  if match:
+    chr[match.group(1)] = int(match.group(2))
+
+def writeOut(fOut, ref, start, end, read, chr):
+  '''
+  Write BED output. Check chromosome lengths.
+  '''
+  fOut.write('%s\t%d\t%d\t%s\n' % \
+    (ref, start, end, read))
+
+def processPaired(spl, flag, start, pos, chr, fOut):
+  '''
+  Process a properly paired SAM record.
+  '''
+  # 2nd of PE reads
+  if spl[0] in pos:
+    if pos[spl[0]] == -1:
+      print 'Error! Read %s already analyzed' % spl[0]
+      sys.exit(-1)
+
+    # save end position
+    if flag & 0x10:
+      start += len(spl[9])
+
+    writeOut(fOut, spl[2], min(start, pos[spl[0]]), \
+      max(start, pos[spl[0]]), spl[0], chr)
+
+    pos[spl[0]] = -1
+
+  # 1st of PE reads: save end position
+  else:
+    if flag & 0x10:
+      pos[spl[0]] = start + len(spl[9])
+    else:
+      pos[spl[0]] = start
+
+
+def parseSAM(fIn, fOut, add):
   '''
   Parse the input file, and produce the output file.
   '''
+  chr = {}
   pos = {}
-  line = f.readline().rstrip()
+  line = fIn.readline().rstrip()
   while line:
 
     # skip header
     if line[0] == '@':
-      line = f.readline().rstrip()
+      loadChrLen(line, chr)  # load chromosome length
+      line = fIn.readline().rstrip()
       continue
 
     # save flag and start position
@@ -45,34 +90,12 @@ def parseSAM(f, out, add):
 
     # skip unmapped
     if flag & 0x4:
-      line = f.readline().rstrip()
+      line = fIn.readline().rstrip()
       continue
 
     # properly paired alignment
     if flag & 0x2:
-
-      # 2nd of PE reads
-      if spl[0] in pos:
-        if pos[spl[0]] == -1:
-          print 'Error! Read %s already analyzed' % spl[0]
-          sys.exit(-1)
-
-        # save end position
-        if flag & 0x10:
-          start += len(spl[9])
-
-        out.write('%s\t%d\t%d\t%s\n' % \
-          (spl[2], min(start, pos[spl[0]]), \
-          max(start, pos[spl[0]]), spl[0]))
-
-        pos[spl[0]] = -1
-
-      # 1st of PE reads: save end position
-      else:
-        if flag & 0x10:
-          pos[spl[0]] = start + len(spl[9])
-        else:
-          pos[spl[0]] = start
+      processPaired(spl, flag, start, pos, chr, fOut)
 
     # unpaired alignment
     elif add != -1:
@@ -89,7 +112,7 @@ def parseSAM(f, out, add):
 
       pos[spl[0]] = -1
 
-    line = f.readline().rstrip()
+    line = fIn.readline().rstrip()
 
 def main():
   '''
@@ -116,18 +139,18 @@ def main():
   # open files
   if len(args[i:]) < 2: usage()
   try:
-    f = open(args[i], 'rU')
+    fIn = open(args[i], 'rU')
   except IOError:
     if args[i] == '-':
-      f = sys.stdin
+      fIn = sys.stdin
     else:
       print 'Error! Cannot open', args[i]
       usage()
-  out = open(args[i+1], 'w')
+  fOut = open(args[i+1], 'w')
 
-  parseSAM(f, out, add)
-  f.close()
-  out.close()
+  parseSAM(fIn, fOut, add)
+  fIn.close()
+  fOut.close()
 
 if __name__ == '__main__':
   main()
