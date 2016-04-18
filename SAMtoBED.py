@@ -2,7 +2,7 @@
 
 # JMG 4/13/16
 
-# Produce a BED file from a SAM (or piped-in BAM).
+# Produce a BED file from a SAM.
 # Combine paired-end alignments.
 
 import sys
@@ -23,14 +23,23 @@ def loadChrLen(line, chr):
   '''
   Load chromosome lengths from the SAM file header.
   '''
-  match = re.search(r'@SQ\s+SN:(\S+)\s+LN:(\d+)', line)
-  if match:
-    chr[match.group(1)] = int(match.group(2))
+  mat = re.search(r'@SQ\s+SN:(\S+)\s+LN:(\d+)', line)
+  if mat:
+    chr[mat.group(1)] = int(mat.group(2))
 
 def writeOut(fOut, ref, start, end, read, chr):
   '''
-  Write BED output. Check chromosome lengths.
+  Write BED output. Adjust any read that extends beyond
+    chromosome ends.
   '''
+  if start < 0:
+    start = 0
+    sys.stderr.write('Warning! Read %s prevented from ' % read + \
+      'extending below 0 on %s\n' % ref)
+  if ref in chr and end > chr[ref]:
+    end = chr[ref]
+    sys.stderr.write('Warning! Read %s prevented from ' % read + \
+      'extending past %d on %s\n' % (chr[ref], ref))
   fOut.write('%s\t%d\t%d\t%s\n' % \
     (ref, start, end, read))
 
@@ -51,7 +60,7 @@ def processPaired(spl, flag, start, pos, chr, fOut):
     writeOut(fOut, spl[2], min(start, pos[spl[0]]), \
       max(start, pos[spl[0]]), spl[0], chr)
 
-    pos[spl[0]] = -1
+    pos[spl[0]] = -1  # records that read was processed
 
   # 1st of PE reads: save end position
   else:
@@ -60,13 +69,28 @@ def processPaired(spl, flag, start, pos, chr, fOut):
     else:
       pos[spl[0]] = start
 
+def processUnpaired(spl, flag, start, pos, chr, fOut, add):
+  '''
+  Process an unpaired SAM record.
+  '''
+  end = start + len(spl[9])
+
+  # adjust ends (using parameter 'add')
+  if add != 0:
+    if flag & 0x10:
+      start -= add - len(spl[9])
+    else:
+      end = start + add
+
+  writeOut(fOut, spl[2], start, end, spl[0], chr)
+  pos[spl[0]] = -1  # records that read was processed
 
 def parseSAM(fIn, fOut, add):
   '''
   Parse the input file, and produce the output file.
   '''
-  chr = {}
-  pos = {}
+  chr = {}  # chromosome lengths
+  pos = {}  # position of alignment (for paired reads)
   line = fIn.readline().rstrip()
   while line:
 
@@ -88,29 +112,16 @@ def parseSAM(fIn, fOut, add):
       print 'Error parsing SAM record:\n', line
       sys.exit(-1)
 
-    # skip unmapped
-    if flag & 0x4:
+    # skip unmapped, secondary, and supplementary
+    if flag & 0x904:
       line = fIn.readline().rstrip()
       continue
 
-    # properly paired alignment
+    # process alignment
     if flag & 0x2:
       processPaired(spl, flag, start, pos, chr, fOut)
-
-    # unpaired alignment
     elif add != -1:
-      end = start + len(spl[9])
-      # adjust ends (parameter 'add')
-      if add != 0:
-        if flag & 0x10:
-          start -= add - len(spl[9])
-        else:
-          end = start + add
-
-      out.write('%s\t%d\t%d\t%s\n' % \
-        (spl[2], start, end, spl[0]))
-
-      pos[spl[0]] = -1
+      processUnpaired(spl, flag, start, pos, chr, fOut, add)
 
     line = fIn.readline().rstrip()
 
