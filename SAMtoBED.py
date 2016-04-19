@@ -27,6 +27,19 @@ def loadChrLen(line, chr):
   if mat:
     chr[mat.group(1)] = int(mat.group(2))
 
+def parseCigar(cigar):
+  '''
+  Determine indel offset of alignment from CIGAR.
+  '''
+  offset = 0
+  ins = re.findall(r'(\d+)I', cigar)
+  for i in ins:
+    offset -= int(i)
+  de = re.findall(r'(\d+)D', cigar)
+  for d in de:
+    offset += int(d)
+  return offset
+
 def writeOut(fOut, ref, start, end, read, chr):
   '''
   Write BED output. Adjust any read that extends beyond
@@ -43,7 +56,7 @@ def writeOut(fOut, ref, start, end, read, chr):
   fOut.write('%s\t%d\t%d\t%s\n' % \
     (ref, start, end, read))
 
-def processPaired(spl, flag, start, pos, chr, fOut):
+def processPaired(spl, flag, start, offset, pos, chr, fOut):
   '''
   Process a properly paired SAM record.
   '''
@@ -55,7 +68,7 @@ def processPaired(spl, flag, start, pos, chr, fOut):
 
     # save end position
     if flag & 0x10:
-      start += len(spl[9])
+      start += offset + len(spl[9])
 
     writeOut(fOut, spl[2], min(start, pos[spl[0]]), \
       max(start, pos[spl[0]]), spl[0], chr)
@@ -65,22 +78,21 @@ def processPaired(spl, flag, start, pos, chr, fOut):
   # 1st of PE reads: save end position
   else:
     if flag & 0x10:
-      pos[spl[0]] = start + len(spl[9])
+      pos[spl[0]] = start + offset + len(spl[9])
     else:
       pos[spl[0]] = start
 
-def processUnpaired(spl, flag, start, pos, chr, fOut, add):
+def processUnpaired(spl, flag, start, offset, pos, chr, fOut, add):
   '''
   Process an unpaired SAM record.
   '''
-  end = start + len(spl[9])
-
   # adjust ends (using parameter 'add')
+  end = start + offset + len(spl[9])
   if add != 0:
     if flag & 0x10:
-      start -= add - len(spl[9])
+      start = min(end - add, start)
     else:
-      end = start + add
+      end = max(start + add, end)
 
   writeOut(fOut, spl[2], start, end, spl[0], chr)
   pos[spl[0]] = -1  # records that read was processed
@@ -118,10 +130,11 @@ def parseSAM(fIn, fOut, add):
       continue
 
     # process alignment
+    offset = parseCigar(spl[5])
     if flag & 0x2:
-      processPaired(spl, flag, start, pos, chr, fOut)
+      processPaired(spl, flag, start, offset, pos, chr, fOut)
     elif add != -1:
-      processUnpaired(spl, flag, start, pos, chr, fOut, add)
+      processUnpaired(spl, flag, start, offset, pos, chr, fOut, add)
 
     line = fIn.readline().rstrip()
 
