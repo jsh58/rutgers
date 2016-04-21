@@ -5,11 +5,24 @@
 
 import sys
 
+def revComp(seq):
+  rc = ''
+  comp = {'A':'T', 'C':'G', 'G':'C', 'T':'A', 'N':'N'}
+  for nuc in seq[::-1]:
+    if not nuc.upper() in comp:
+      print 'Error! Unknown nucleotide:', nuc
+      sys.exit(-1)
+    rc += comp[nuc.upper()]
+  return rc
+
 def main():
   args = sys.argv[1:]
   if len(args) < 4:
-    print 'Usage: python getChrom.py  <fastaGenome>  <chrom>  <pos>  <len>'
-    print '  note: <pos> is 0-based position'
+    print 'Usage: python %s  <genome> ' % sys.argv[0] + \
+      ' <chrom>  <pos>  <len>  [rc]'
+    print '  <genome>  FASTA format'
+    print '  <pos>     0-based position'
+    print '  [rc]      option to print reverse-complement'
     sys.exit(-1)
 
   try:
@@ -18,6 +31,7 @@ def main():
     print 'Error! Cannot open genome file %s' % args[0]
     sys.exit(-1)
 
+  # save CL args
   chrom = '>' + args[1]
   try:
     pos = int(args[2])
@@ -25,11 +39,15 @@ def main():
   except ValueError:
     print 'Error! <pos> and <len> must be integers'
     sys.exit(-1)
+  rc = 0
+  if len(args) > 4 and args[4] == 'rc':
+    rc = 1
 
+  # find chromosome
   chr = ''
   for line in f:
     if line.rstrip() == chrom:
-      # save chromosome
+      # save sequence
       for line in f:
         if line[0] == '>':
           break
@@ -39,7 +57,14 @@ def main():
 
   # print output
   if chr:
-    print '%s %d %d\n%s' % (chrom, pos, length, chr[pos:pos+length])
+    if pos + length >= len(chr):
+      print 'Warning! Chromosome %s length is %d' % \
+        (chrom[1:], len(chr))
+    print '%s %d %d' % (chrom, pos, length),
+    if rc:
+      print 'rc\n%s' % revComp(chr[pos:pos+length])
+    else:
+      print '\n%s' % chr[pos:pos+length].upper()
   else:
     print 'Error! Chromosome %s not found' % chrom[1:]
 
