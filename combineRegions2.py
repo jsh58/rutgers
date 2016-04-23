@@ -7,7 +7,7 @@ import sys
 
 def valChr(k):
   '''
-  Method to sort chromosomes.
+  For sorting chromosomes.
   '''
   if k == 'chrM':
     return 0
@@ -18,15 +18,16 @@ def valChr(k):
   return int(k[3:])
 
 def val(k):
+  '''
+  For sorting positions.
+  '''
   return int(k)
 
 
 def processRegion(chr, reg, d, samples, fOut):
-  #print 'Calling procReg for %s' % chr
-  #for r in reg:
-  #  print r,
-  #print
-  #sys.exit(0)
+  minCpG = 1
+  if len(reg) < minCpG:
+    return
 
   fOut.write('%s\t%d\t%d\t%d' % (chr, reg[0], reg[-1], len(reg)))
   for sample in samples:
@@ -37,23 +38,26 @@ def processRegion(chr, reg, d, samples, fOut):
         meth += d[chr][pos][sample][0]
         unmeth += d[chr][pos][sample][1]
     if meth + unmeth == 0:
-      fOut.write('\t0')
+      fOut.write('\tNA')
     else:
       fOut.write('\t%f' % (meth / float(meth+unmeth)))
   fOut.write('\n')
 
 def main():
+  '''
+  Main.
+  '''
   args = sys.argv[1:]
   if len(args) < 2:
-    print 'Usage: python %s  <outfile>  <infile1>  <infile2> ...' % sys.argv[0]
+    print 'Usage: python %s  <outfile>  <infile(s)>  ...' % sys.argv[0]
     sys.exit(-1)
 
   fOut = open(args[0], 'w')
 
-  d = {}
-  tot = {}
-  samples = []
-  num = 1  # must have more than this number of reads
+  d = {}    # for methylated, unmethylated counts
+  tot = {}  # for number of samples with min. coverage
+  num = 2   # must have more than this number of reads
+  samples = []  # list of sample names
   for fname in args[1:]:
     try:
       fIn = open(fname, 'rU')
@@ -87,9 +91,10 @@ def main():
         tot[spl[0]][spl[1]] = tot[spl[0]].get(spl[1], 0) + 1
     fIn.close()
 
-  fOut.write('\t'.join(['chr', 'pos5', 'pos3', 'CpG'] + samples) + '\n')
+  fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] + samples) + '\n')
 
   # save connected positions
+  dist = 500
   for chr in sorted(tot, key=valChr):
     reg = []
     pos3 = 0
@@ -97,7 +102,7 @@ def main():
       # require 2 samples
       if tot[chr][pos] > 1:
         loc = int(pos)
-        if pos3 and loc - pos3 > 1000:
+        if pos3 and loc - pos3 > dist:
           processRegion(chr, reg, d, samples, fOut)
           reg = []
         reg.append(loc)
