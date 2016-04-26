@@ -5,6 +5,30 @@
 
 import sys
 
+def usage():
+  print "Usage: python combineRegions2.py  [options]  -o <outfile>  <infile(s)>  \n\
+    <outfile>     Output file listing combined regions                           \n\
+    <infile(s)>   One or more files produced by coverage2cytosine (Bismark)      \n\
+  Options:                                                                       \n\
+    -r <int>      Minimum number of reads at a position in a sample (def. 1)     \n\
+    -s <int>      Minimum number of samples with the minimum number of reads     \n\
+                    to consider a position (def. 1)                              \n\
+    -d <int>      Maximum distance between CpG's to combine into the same        \n\
+                    region (def. 1000)                                           \n\
+    -c <int>      Minimum number of CpG's in a region to report (def. 1)         "
+  sys.exit(-1)
+
+def getInt(arg):
+  '''
+  Convert given argument to int.
+  '''
+  try:
+    val = int(arg)
+  except ValueError:
+    print 'Error! Cannot convert %s to int' % arg
+    usage()
+  return val
+
 def valChr(k):
   '''
   For sorting chromosomes.
@@ -23,9 +47,10 @@ def val(k):
   '''
   return int(k)
 
-
-def processRegion(chr, reg, d, samples, fOut):
-  minCpG = 1
+def processRegion(chr, reg, d, minCpG, samples, fOut):
+  '''
+  Produce output for a given region of CpGs.
+  '''
   if len(reg) < minCpG:
     return
 
@@ -43,83 +68,116 @@ def processRegion(chr, reg, d, samples, fOut):
       fOut.write('\t%f' % (meth / float(meth+unmeth)))
   fOut.write('\n')
 
+def combineRegions(d, tot, minSamples, maxDist, minCpG, samples, fOut):
+  '''
+  Combine data from CpG positions that are close to each other.
+  Process combined regions on the fly.
+  '''
+  for chr in sorted(tot, key=valChr):
+    reg = []  # for saving connected positions
+    pos3 = 0
+    for pos in sorted(tot[chr], key=val):
+      # require a min. number of samples
+      if tot[chr][pos] > minSamples:
+        loc = int(pos)
+        if pos3 and loc - pos3 > maxDist:
+          processRegion(chr, reg, d, minCpG, samples, fOut)
+          reg = []  # reset list
+        reg.append(loc)
+        pos3 = loc
+    processRegion(chr, reg, d, minCpG, samples, fOut)
+
+def processFile(fname, minReads, d, tot, samples):
+  '''
+  Load the methylation/unmethylation counts for a file.
+  '''
+  try:
+    f = open(fname, 'rU')
+  except IOError:
+    print 'Error! Cannot open', fname
+    usage()
+
+  # save sample name
+  sample = fname.split('.')[0]
+  samples.append(sample)
+
+  # load counts from file
+  for line in f:
+    try:
+      chr, pos, end, pct, meth, unmeth = line.rstrip().split('\t')
+    except ValueError:
+      print 'Error! Poorly formatted cov record in %s:\n' % fname, line
+      sys.exit(-1)
+    meth = getInt(meth)
+    unmeth = getInt(unmeth)
+
+    # save counts and total
+    if not chr in d:
+      d[chr] = {}
+      tot[chr] = {}
+    if not pos in d[chr]:
+      d[chr][pos] = {}
+    d[chr][pos][sample] = [meth, unmeth]
+    if meth + unmeth >= minReads:
+      tot[chr][pos] = tot[chr].get(pos, 0) + 1
+
+  f.close()
+
 def main():
   '''
   Main.
   '''
+  # Default parameters
+  minReads = 1     # min. reads in a sample at a position
+  minSamples = 1   # min. samples with min. reads at a position
+  maxDist = 1000   # max. distance between CpGs
+  minCpG = 1       # min. CpGs in a region
+  fOut = None      # output file
+  fIn = []         # list of input files
+
+  # Get command-line args
   args = sys.argv[1:]
-  if len(args) < 2:
-    print 'Usage: python %s  <outfile>  <infile(s)>  ...' % sys.argv[0]
-    sys.exit(-1)
+  if len(args) < 2: usage()
+  i = 0
+  while i < len(args):
+    if args[i][0] == '-':
+      if args[i] == '-r':
+        minReads = getInt(args[i+1])
+      elif args[i] == '-s':
+        minSamples = getInt(args[i+1])
+      elif args[i] == '-d':
+        maxDist = getInt(args[i+1])
+      elif args[i] == '-c':
+        minCpG = getInt(args[i+1])
+      elif args[i] == '-o':
+        fOut = open(args[i+1], 'w')
+      else:
+        print 'Error! Unknown argument:', args[i]
+        usage()
+      i += 1
+    else:
+      fIn.append(args[i])
+    i += 1
 
-  fOut = open(args[0], 'w')
+  # check for I/O errors
+  if fOut == None:
+    print 'Error! Must supply an output file'
+    usage()
+  if len(fIn) == 0:
+    print 'Error! Must supply one or more input files'
+    usage()
 
+  # load methylation information for each sample
   d = {}    # for methylated, unmethylated counts
   tot = {}  # for number of samples with min. coverage
-  num = 2   # must have more than this number of reads
   samples = []  # list of sample names
-  for fname in args[1:]:
-    try:
-      fIn = open(fname, 'rU')
-    except IOError:
-      print 'Error! Cannot open', fname
-      sys.exit(-1)
+  for fname in fIn:
+    processFile(fname, minReads, d, tot, samples)
 
-    # save sample name
-    dot = fname.split('.')
-    sample = dot[0]
-    samples.append(sample)
-
-    for line in fIn:
-      spl = line.rstrip().split('\t')
-      if len(spl) < 6:
-        print 'Error! Poorly formatted cov record:\n', line
-        sys.exit(-1)
-      try:
-        total = int(spl[4]) + int(spl[5])
-      except ValueError:
-        print 'Error! Poorly formatted cov record:\n', line
-
-      # save counts and total
-      if not spl[0] in d:
-        d[spl[0]] = {}
-        tot[spl[0]] = {}
-      if not spl[1] in d[spl[0]]:
-        d[spl[0]][spl[1]] = {}
-      d[spl[0]][spl[1]][sample] = [int(spl[4]), int(spl[5])]
-      if total > num:
-        tot[spl[0]][spl[1]] = tot[spl[0]].get(spl[1], 0) + 1
-    fIn.close()
-
+  # produce output
   fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] + samples) + '\n')
-
-  # save connected positions
-  dist = 500
-  for chr in sorted(tot, key=valChr):
-    reg = []
-    pos3 = 0
-    for pos in sorted(tot[chr], key=val):
-      # require 2 samples
-      if tot[chr][pos] > 1:
-        loc = int(pos)
-        if pos3 and loc - pos3 > dist:
-          processRegion(chr, reg, d, samples, fOut)
-          reg = []
-        reg.append(loc)
-        pos3 = loc
-    processRegion(chr, reg, d, samples, fOut)
+  combineRegions(d, tot, minSamples, maxDist, minCpG, samples, fOut)
   fOut.close()
-
-#        chunk = [[] for sample in samples]
- #       rec = '\t'.join([chr, pos])
-  #      for sample in samples:
-   #       data = d[chr][pos].get(sample, None)
-    #      if sample in d[chr][pos]:
-     #       rec += '\t'.join(d[chr][pos][sample])
-      #    else:
-       #     rec += '\t0' * 2
-        #fOut.write(rec + '\n')
-
 
 if __name__ == '__main__':
   main()
