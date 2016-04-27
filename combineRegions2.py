@@ -78,7 +78,7 @@ def combineRegions(d, tot, minSamples, maxDist, minCpG, samples, fOut):
     pos3 = 0
     for pos in sorted(tot[chr], key=val):
       # require a min. number of samples
-      if tot[chr][pos] > minSamples:
+      if tot[chr][pos] >= minSamples:
         loc = int(pos)
         if pos3 and loc - pos3 > maxDist:
           processRegion(chr, reg, d, minCpG, samples, fOut)
@@ -151,6 +151,8 @@ def main():
         minCpG = getInt(args[i+1])
       elif args[i] == '-o':
         fOut = open(args[i+1], 'w')
+      elif args[i] == '-h':
+        usage()
       else:
         print 'Error! Unknown argument:', args[i]
         usage()
