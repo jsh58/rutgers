@@ -58,7 +58,8 @@ def processRegion(chr, reg, d, minCpG, minReg, samples, fOut):
   if len(reg) < minCpG:
     return
 
-  fOut.write('%s\t%d\t%d\t%d' % (chr, reg[0], reg[-1], len(reg)))
+  flag = 0  # boolean for printing line
+  res = '%s\t%d\t%d\t%d' % (chr, reg[0], reg[-1], len(reg))
   for sample in samples:
     meth = unmeth = 0
     for r in reg:
@@ -67,10 +68,12 @@ def processRegion(chr, reg, d, minCpG, minReg, samples, fOut):
         meth += d[chr][pos][sample][0]
         unmeth += d[chr][pos][sample][1]
     if meth + unmeth < minReg:
-      fOut.write('\tNA')
+      res += '\tNA'
     else:
-      fOut.write('\t%f' % (meth / float(meth+unmeth)))
-  fOut.write('\n')
+      res += '\t%f' % (meth / float(meth+unmeth))
+      flag = 1
+  if flag:
+    fOut.write(res + '\n')
 
 def combineRegions(d, tot, minSamples, maxDist, minCpG, minReg, samples, fOut):
   '''
