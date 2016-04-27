@@ -6,16 +6,20 @@
 import sys
 
 def usage():
-  print "Usage: python combineRegions2.py  [options]  -o <outfile>  <infile(s)>  \n\
-    <outfile>     Output file listing combined regions                           \n\
-    <infile(s)>   One or more files produced by coverage2cytosine (Bismark)      \n\
-  Options:                                                                       \n\
-    -r <int>      Minimum number of reads at a position in a sample (def. 1)     \n\
-    -s <int>      Minimum number of samples with the minimum number of reads     \n\
-                    to consider a position (def. 1)                              \n\
-    -d <int>      Maximum distance between CpG's to combine into the same        \n\
-                    region (def. 1000)                                           \n\
-    -c <int>      Minimum number of CpG's in a region to report (def. 1)         "
+  print "Usage: python combineRegions2.py  [options]  -o <outfile>  <infile(s)> \n\
+    <outfile>     Output file listing combined regions                          \n\
+    <infile(s)>   One or more files produced by coverage2cytosine (Bismark)     \n\
+  Options:                                                                      \n\
+    To consider a particular CpG:                                               \n\
+      -r <int>    Minimum number of reads at a position in a sample (def. 1)    \n\
+      -s <int>    Minimum number of samples with the minimum number of reads    \n\
+                    to consider a position (def. 1)                             \n\
+    To analyze a region of CpGs:                                                \n\
+      -d <int>    Maximum distance between CpG's to combine into the same       \n\
+                    region (def. 1000)                                          \n\
+      -c <int>    Minimum number of CpG's in a region to report (def. 1)        \n\
+    To report a particular result:                                              \n\
+      -m <int>    Minimum total reads in a region for a sample (def. 1)          "
   sys.exit(-1)
 
 def getInt(arg):
@@ -47,7 +51,7 @@ def val(k):
   '''
   return int(k)
 
-def processRegion(chr, reg, d, minCpG, samples, fOut):
+def processRegion(chr, reg, d, minCpG, minReg, samples, fOut):
   '''
   Produce output for a given region of CpGs.
   '''
@@ -62,13 +66,13 @@ def processRegion(chr, reg, d, minCpG, samples, fOut):
       if sample in d[chr][pos]:
         meth += d[chr][pos][sample][0]
         unmeth += d[chr][pos][sample][1]
-    if meth + unmeth == 0:
+    if meth + unmeth < minReg:
       fOut.write('\tNA')
     else:
       fOut.write('\t%f' % (meth / float(meth+unmeth)))
   fOut.write('\n')
 
-def combineRegions(d, tot, minSamples, maxDist, minCpG, samples, fOut):
+def combineRegions(d, tot, minSamples, maxDist, minCpG, minReg, samples, fOut):
   '''
   Combine data from CpG positions that are close to each other.
   Process combined regions on the fly.
@@ -81,11 +85,11 @@ def combineRegions(d, tot, minSamples, maxDist, minCpG, samples, fOut):
       if tot[chr][pos] >= minSamples:
         loc = int(pos)
         if pos3 and loc - pos3 > maxDist:
-          processRegion(chr, reg, d, minCpG, samples, fOut)
+          processRegion(chr, reg, d, minCpG, minReg, samples, fOut)
           reg = []  # reset list
         reg.append(loc)
         pos3 = loc
-    processRegion(chr, reg, d, minCpG, samples, fOut)
+    processRegion(chr, reg, d, minCpG, minReg, samples, fOut)
 
 def processFile(fname, minReads, d, tot, samples):
   '''
@@ -132,6 +136,7 @@ def main():
   minSamples = 1   # min. samples with min. reads at a position
   maxDist = 1000   # max. distance between CpGs
   minCpG = 1       # min. CpGs in a region
+  minReg = 1       # min. reads in a sample for a region
   fOut = None      # output file
   fIn = []         # list of input files
 
@@ -149,6 +154,8 @@ def main():
         maxDist = getInt(args[i+1])
       elif args[i] == '-c':
         minCpG = getInt(args[i+1])
+      elif args[i] == '-m':
+        minReg = getInt(args[i+1])
       elif args[i] == '-o':
         fOut = open(args[i+1], 'w')
       elif args[i] == '-h':
@@ -178,7 +185,7 @@ def main():
 
   # produce output
   fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] + samples) + '\n')
-  combineRegions(d, tot, minSamples, maxDist, minCpG, samples, fOut)
+  combineRegions(d, tot, minSamples, maxDist, minCpG, minReg, samples, fOut)
   fOut.close()
 
 if __name__ == '__main__':
