@@ -39,6 +39,9 @@ def cpgcount(seq):
   return count
 
 def openFile(fname):
+  '''
+  Open a file for reading.
+  '''
   try:
     f = open(fname, 'rU')
   except IOError:
@@ -85,7 +88,7 @@ def processFile(fname, d, samples):
       sys.exit(-1)
     meth = getInt(meth)
     unmeth = getInt(unmeth)
-    pos = str(int(pos)-1)  # convert pos to 0-based
+    pos = str(getInt(pos)-1)  # convert pos to 0-based
 
     # save counts and total
     if not chr in d:
@@ -101,12 +104,18 @@ def processRegion(line, d, samples, gen, fOut):
   Analyze a region (defined by the BED file).
   Total methylated and unmethylated counts for each sample.
   '''
-  chr, st, end = line.split('\t')
-  st = getInt(st)
-  end = getInt(end)
+  try:
+    chr, st, end = line.split('\t')
+  except ValueError:
+    print 'Error! Poorly formatted BED record' + \
+      '(need chr, start, end only):\n' % line
+    sys.exit(-1)
+
+  st = getInt(st) - 1    # expand region by 1bp
+  end = getInt(end) + 1  # ditto
   cpg = 'NA'
   if chr in gen:
-    cpg = cpgcount( gen[ chr ][ st : end ] )
+    cpg = cpgcount( gen[chr][st:end] )
 
   res = '%s\t%d\t%d\t%s' % (chr, st, end, str(cpg))
   for sample in samples:
@@ -125,7 +134,6 @@ def processRegion(line, d, samples, gen, fOut):
     else:
       res += '\t%f' % (meth / float(meth+unmeth))
   fOut.write(res + '\n')
-
 
 def main():
   '''
