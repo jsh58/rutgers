@@ -55,7 +55,7 @@ def processLine(line, idx1, idx2):
     sample2.append(float(spl[idx]))
   if sample2:
     avg2 /= len(sample2)
-  diff = abs(avg1 - avg2)
+  diff = avg2 - avg1
 
   # calculate p-value (Welch's t-test)
   if len(sample1) < 2 or len(sample2) < 2 or \
