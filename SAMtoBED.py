@@ -16,7 +16,7 @@ def usage():
     -n        Do not print unpaired alignments (default)          \n\
     -y        Print unpaired alignments                           \n\
     -a <int>  Print unpaired alignments, with read length         \n\
-                increased to specified value"
+                increased to specified value                       "
   sys.exit(-1)
 
 def loadChrLen(line, chr):

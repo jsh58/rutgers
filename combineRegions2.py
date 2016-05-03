@@ -19,7 +19,9 @@ def usage():
                     region (def. 1000)                                          \n\
       -c <int>    Minimum number of CpG's in a region to report (def. 1)        \n\
     To report a particular result:                                              \n\
-      -m <int>    Minimum total reads in a region for a sample (def. 1)          "
+      -m <int>    Minimum total reads in a region for a sample (def. 1)         \n\
+    Other:                                                                      \n\
+      -v          Run in verbose mode                                            "
   sys.exit(-1)
 
 def getInt(arg):
@@ -142,6 +144,7 @@ def main():
   minReg = 1       # min. reads in a sample for a region
   fOut = None      # output file
   fIn = []         # list of input files
+  verbose = 0      # verbose option
 
   # Get command-line args
   args = sys.argv[1:]
@@ -161,6 +164,9 @@ def main():
         minReg = getInt(args[i+1])
       elif args[i] == '-o':
         fOut = open(args[i+1], 'w')
+      elif args[i] == '-v':
+        verbose = 1
+        i -= 1
       elif args[i] == '-h':
         usage()
       else:
@@ -180,13 +186,19 @@ def main():
     usage()
 
   # load methylation information for each sample
+  if verbose:
+    print 'Loading methylation information'
   d = {}    # for methylated, unmethylated counts
   tot = {}  # for number of samples with min. coverage
   samples = []  # list of sample names
   for fname in fIn:
+    if verbose:
+      print '  ' + fname
     processFile(fname, minReads, d, tot, samples)
 
   # produce output
+  if verbose:
+    print 'Combining regions and producing output'
   fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] + samples) + '\n')
   combineRegions(d, tot, minSamples, maxDist, minCpG, minReg, samples, fOut)
   fOut.close()
