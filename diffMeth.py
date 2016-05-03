@@ -22,6 +22,53 @@ def getSample(csv):
     arr.append(tok)
   return arr
 
+def saveIndexes(fIn, sample1, sample2):
+  '''
+  Find indexes for samples in input file.
+  '''
+  idx1 = []  # for indexes
+  idx2 = []
+  res1 = []  # for ordered sample names
+  res2 = []
+
+  # get indexes
+  header = fIn.readline().rstrip()
+  spl = header.split('\t')
+  for i in range(len(spl)):
+    if spl[i] in sample1:
+      idx1.append(i)
+      res1.append(spl[i])
+    elif spl[i] in sample2:
+      idx2.append(i)
+      res2.append(spl[i])
+  if len(idx1) != len(sample1) or len(idx2) != len(sample2):
+    print 'Error! Cannot find all sample names in input file'
+    sys.exit(-1)
+
+  # construct header for output file
+  res = spl[:4] + res1 + res2
+  return idx1, idx2, res
+
+def calcAvg(spl, idxs):
+  '''
+  Calculate average for a subset of values in a list.
+  '''
+  avg = 0
+  val = []  # for saving re-ordered values (incl. NA)
+  sample = []  # for saving only numerical values
+  for idx in idxs:
+    val.append(spl[idx])
+    if spl[idx] == 'NA':
+      continue
+    try:
+      avg += float(spl[idx])
+    except ValueError:
+      print 'Error! Poorly formatted record:\n', line
+    sample.append(float(spl[idx]))
+  if sample:
+    avg /= len(sample)
+  return avg, val, sample
+
 def processLine(line, idx1, idx2):
   '''
   Calculate mean difference and p-value.
@@ -30,43 +77,25 @@ def processLine(line, idx1, idx2):
   if len(spl) < max(max(idx1), max(idx2)):
     print 'Error! Poorly formatted record:\n', line
 
-  # calculate avg for sample1
-  avg1 = 0
-  sample1 = []
-  for idx in idx1:
-    if spl[idx] == 'NA': continue
-    try:
-      avg1 += float(spl[idx])
-    except ValueError:
-      print 'Error! Poorly formatted record:\n', line
-    sample1.append(float(spl[idx]))
-  if sample1:
-    avg1 /= len(sample1)
-
-  # calculate avg for sample2
-  avg2 = 0
-  sample2 = []
-  for idx in idx2:
-    if spl[idx] == 'NA': continue
-    try:
-      avg2 += float(spl[idx])
-    except ValueError:
-      print 'Error! Poorly formatted record:\n', line
-    sample2.append(float(spl[idx]))
-  if sample2:
-    avg2 /= len(sample2)
+  # calculate averages, difference
+  avg1, val1, sample1 = calcAvg(spl, idx1)
+  avg2, val2, sample2 = calcAvg(spl, idx2)
   diff = avg2 - avg1
 
   # calculate p-value (Welch's t-test)
-  if len(sample1) < 2 or len(sample2) < 2 or \
-      (max(sample1) - min(sample1) == 0 and \
-      max(sample2) - min(sample2) == 0):
+  if len(sample1) < 2 or len(sample2) < 2:
     pval = 'NA'
   elif diff == 0:
     pval = 1
+  elif max(sample1) - min(sample1) == 0 and \
+      max(sample2) - min(sample2) == 0:
+    pval = 0
   else:
     pval = stats.ttest_ind(sample1, sample2, equal_var=False)[1]
-  return diff, pval
+
+  # construct record for output file
+  res = spl[:4] + val1 + val2
+  return diff, pval, res
 
 def main():
   '''
@@ -109,24 +138,13 @@ def main():
     usage()
 
   # save indexes of samples from header
-  idx1 = []
-  idx2 = []
-  header = fIn.readline().rstrip()
-  spl = header.split('\t')
-  for i in range(len(spl)):
-    if spl[i] in sample1:
-      idx1.append(i)
-    elif spl[i] in sample2:
-      idx2.append(i)
-  if len(idx1) != len(sample1) or len(idx2) != len(sample2):
-    print 'Error! Cannot find all sample names in input file'
-    sys.exit(-1)
-  fOut.write('\t'.join([header, 'diff', 'p-value']) + '\n')
+  idx1, idx2, res = saveIndexes(fIn, sample1, sample2)
+  fOut.write('\t'.join(res + ['diff', 'p-value']) + '\n')
 
   # process file
   for line in fIn:
-    diff, pval = processLine(line.rstrip(), idx1, idx2)
-    fOut.write('\t'.join([line.rstrip(), str(diff), str(pval)]) + '\n')
+    diff, pval, res = processLine(line.rstrip(), idx1, idx2)
+    fOut.write('\t'.join(res + [str(diff), str(pval)]) + '\n')
 
   fIn.close()
   fOut.close()
