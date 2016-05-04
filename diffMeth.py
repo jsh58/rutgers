@@ -4,7 +4,11 @@
 # Testing regions for differential methylation.
 
 import sys, math
-from scipy import stats
+try:
+  from scipy import stats
+except ImportError:
+  print 'Error! Must have the scipy module installed'
+  sys.exit(-1)
 
 def usage():
   print "Usage: python diffMeth.py  -1 <sample1List>  -2 <sample2List>  \ \n\
@@ -30,6 +34,8 @@ def saveIndexes(fIn, sample1, sample2):
   idx2 = []
   res1 = []  # for ordered sample names
   res2 = []
+  idxExtra = []  # for gene, distance, location
+  resExtra = []
 
   # get indexes
   header = fIn.readline().rstrip()
@@ -41,13 +47,16 @@ def saveIndexes(fIn, sample1, sample2):
     elif spl[i] in sample2:
       idx2.append(i)
       res2.append(spl[i])
+    elif spl[i] in ['gene', 'distance', 'location']:
+      idxExtra.append(i)
+      resExtra.append(spl[i])
   if len(idx1) != len(sample1) or len(idx2) != len(sample2):
     print 'Error! Cannot find all sample names in input file'
     sys.exit(-1)
 
   # construct header for output file
-  res = spl[:4] + res1 + res2
-  return idx1, idx2, res
+  res = spl[:4] + res1 + res2 + resExtra
+  return idx1, idx2, idxExtra, res
 
 def calcAvg(spl, idxs):
   '''
@@ -69,7 +78,7 @@ def calcAvg(spl, idxs):
     avg /= len(sample)
   return avg, val, sample
 
-def processLine(line, idx1, idx2):
+def processLine(line, idx1, idx2, idxExtra):
   '''
   Calculate mean difference and p-value.
   '''
@@ -80,7 +89,11 @@ def processLine(line, idx1, idx2):
   # calculate averages, difference
   avg1, val1, sample1 = calcAvg(spl, idx1)
   avg2, val2, sample2 = calcAvg(spl, idx2)
-  diff = avg2 - avg1
+  if not sample1 and not sample2:
+    return 0, 0, ''
+  diff = 'NA'
+  if sample1 and sample2:
+    diff = avg2 - avg1
 
   # calculate p-value (Welch's t-test)
   if len(sample1) < 2 or len(sample2) < 2:
@@ -95,6 +108,8 @@ def processLine(line, idx1, idx2):
 
   # construct record for output file
   res = spl[:4] + val1 + val2
+  for idx in idxExtra:
+    res.append(spl[idx])
   return diff, pval, res
 
 def main():
@@ -138,13 +153,14 @@ def main():
     usage()
 
   # save indexes of samples from header
-  idx1, idx2, res = saveIndexes(fIn, sample1, sample2)
+  idx1, idx2, idxExtra, res = saveIndexes(fIn, sample1, sample2)
   fOut.write('\t'.join(res + ['diff', 'p-value']) + '\n')
 
   # process file
   for line in fIn:
-    diff, pval, res = processLine(line.rstrip(), idx1, idx2)
-    fOut.write('\t'.join(res + [str(diff), str(pval)]) + '\n')
+    diff, pval, res = processLine(line.rstrip(), idx1, idx2, idxExtra)
+    if res:
+      fOut.write('\t'.join(res + [str(diff), str(pval)]) + '\n')
 
   fIn.close()
   fOut.close()

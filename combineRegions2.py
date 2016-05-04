@@ -193,7 +193,7 @@ def main():
   samples = []  # list of sample names
   for fname in fIn:
     if verbose:
-      print '  ' + fname
+      print '  file:' + fname
     processFile(fname, minReads, d, tot, samples)
 
   # produce output
