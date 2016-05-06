@@ -47,12 +47,6 @@ def valChr(k):
     return 21
   return int(k[3:])
 
-def val(k):
-  '''
-  For sorting positions.
-  '''
-  return int(k)
-
 def processRegion(chr, reg, d, minCpG, minReg, samples, fOut):
   '''
   Produce output for a given region of CpGs.
@@ -77,24 +71,27 @@ def processRegion(chr, reg, d, minCpG, minReg, samples, fOut):
   if flag:
     fOut.write(res + '\n')
 
-def combineRegions(d, tot, minSamples, maxDist, minCpG, minReg, samples, fOut):
+def combineRegions(d, tot, minSamples, maxDist, minCpG, \
+    minReg, samples, fOut):
   '''
-  Combine data from CpG positions that are close to each other.
-  Process combined regions on the fly.
+  Combine data from CpG positions that are close to each
+    other. Process combined regions on the fly.
   '''
   for chr in sorted(tot, key=valChr):
     reg = []  # for saving connected positions
     pos3 = 0
-    for pos in sorted(tot[chr], key=val):
+    for pos in sorted(tot[chr], key=int):
       # require a min. number of samples
       if tot[chr][pos] >= minSamples:
         loc = int(pos)
         if pos3 and loc - pos3 > maxDist:
-          processRegion(chr, reg, d, minCpG, minReg, samples, fOut)
+          processRegion(chr, reg, d, minCpG, minReg, \
+            samples, fOut)
           reg = []  # reset list
         reg.append(loc)
         pos3 = loc
-    processRegion(chr, reg, d, minCpG, minReg, samples, fOut)
+    processRegion(chr, reg, d, minCpG, minReg, samples, \
+      fOut)
 
 def processFile(fname, minReads, d, tot, samples):
   '''
@@ -113,9 +110,11 @@ def processFile(fname, minReads, d, tot, samples):
   # load counts from file
   for line in f:
     try:
-      chr, pos, end, pct, meth, unmeth = line.rstrip().split('\t')
+      chr, pos, end, pct, meth, unmeth = \
+        line.rstrip().split('\t')
     except ValueError:
-      print 'Error! Poorly formatted cov record in %s:\n' % fname, line
+      print 'Error! Poorly formatted cov record in %s:\n' \
+        % fname, line
       sys.exit(-1)
     meth = getInt(meth)
     unmeth = getInt(unmeth)
@@ -137,14 +136,14 @@ def main():
   Main.
   '''
   # Default parameters
-  minReads = 1     # min. reads in a sample at a position
-  minSamples = 1   # min. samples with min. reads at a position
-  maxDist = 1000   # max. distance between CpGs
-  minCpG = 1       # min. CpGs in a region
-  minReg = 1       # min. reads in a sample for a region
-  fOut = None      # output file
-  fIn = []         # list of input files
-  verbose = 0      # verbose option
+  minReads = 1    # min. reads in a sample at a position
+  minSamples = 1  # min. samples with min. reads at a position
+  maxDist = 1000  # max. distance between CpGs
+  minCpG = 1      # min. CpGs in a region
+  minReg = 1      # min. reads in a sample for a region
+  fOut = None     # output file
+  fIn = []        # list of input files
+  verbose = 0     # verbose option
 
   # Get command-line args
   args = sys.argv[1:]
@@ -199,8 +198,10 @@ def main():
   # produce output
   if verbose:
     print 'Combining regions and producing output'
-  fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] + samples) + '\n')
-  combineRegions(d, tot, minSamples, maxDist, minCpG, minReg, samples, fOut)
+  fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] + \
+    samples) + '\n')
+  combineRegions(d, tot, minSamples, maxDist, minCpG, \
+    minReg, samples, fOut)
   fOut.close()
 
 if __name__ == '__main__':

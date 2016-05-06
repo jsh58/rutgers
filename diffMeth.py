@@ -4,12 +4,14 @@
 # Testing regions for differential methylation.
 
 import sys, math
+scip = 0  # boolean for scipy import
 try:
   from scipy import stats
 except ImportError:
-  print 'Error! Must have the scipy module installed --'
-  print '  info can be found at www.scipy.org/install.html'
-  sys.exit(-1)
+  print 'Warning! The scipy module is not installed'
+  print '  (see www.scipy.org/install.html).'
+  print '  All p-values will be reported as "NA".'
+  scip = 1
 
 def usage():
   print "Usage: python diffMeth.py  -1 <group1>  -2 <group2>  \         \n\
@@ -134,7 +136,7 @@ def processLine(line, idx1, idx2, idxExtra):
     diff = avg2 - avg1
 
   # calculate p-value (Welch's t-test)
-  if len(sample1) < 2 or len(sample2) < 2:
+  if len(sample1) < 2 or len(sample2) < 2 or scip:
     pval = 'NA'
   elif diff == 0:
     pval = 1
