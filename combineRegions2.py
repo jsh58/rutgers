@@ -37,7 +37,7 @@ def getInt(arg):
 
 def valChr(k):
   '''
-  For sorting chromosomes.
+  For sorting chromosomes (mouse genome).
   '''
   if k == 'chrM':
     return 0

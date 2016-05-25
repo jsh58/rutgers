@@ -21,6 +21,7 @@ def usage():
     <input>     File listing genomic regions and methylation results    \n\
                   (output from combineRegions2.py)                      \n\
   Options (whether or not to report a region):                          \n\
+    -c <int>    Minimum number of CpGs in a region (def. 1)             \n\
     -d <float>  Minimum methylation difference between sample groups    \n\
                   ([0-1]; def. 0 [all results reported])                \n\
     -up         Report only regions hypermethylated in group2           \n\
@@ -42,6 +43,17 @@ def openFile(fname):
     print 'Error! Cannot open', fname
     usage()
   return f
+
+def getInt(arg):
+  '''
+  Convert given argument to int.
+  '''
+  try:
+    val = int(arg)
+  except ValueError:
+    print 'Error! Cannot convert %s to int' % arg
+    usage()
+  return val
 
 def getFloat(arg):
   '''
@@ -118,13 +130,15 @@ def calcAvg(spl, idxs):
     avg /= len(sample)
   return avg, val, sample
 
-def processLine(line, idx1, idx2, idxExtra):
+def processLine(line, cpg, idx1, idx2, idxExtra):
   '''
   Calculate mean difference and p-value.
   '''
   spl = line.split('\t')
   if len(spl) < max(max(idx1), max(idx2)):
     print 'Error! Poorly formatted record:\n', line
+  if int(spl[3]) < cpg:
+    return 0, 0, ''  # fewer than min. CpGs
 
   # calculate averages, difference
   avg1, val1, sample1 = calcAvg(spl, idx1)
@@ -157,6 +171,7 @@ def main():
   Main.
   '''
   # Default parameters
+  cpg = 0    # min. number of CpGs
   d = 0      # min. methylation difference
   p = 1      # max. p-value
   up = 0     # report only hypermethylated (boolean)
@@ -181,6 +196,8 @@ def main():
       sample1 = getSample(args[i+1])
     elif args[i] == '-2':
       sample2 = getSample(args[i+1])
+    elif args[i] == '-c':
+      cpg = getInt(args[i+1])
     elif args[i] == '-d':
       d = getFloat(args[i+1])
     elif args[i] == '-p':
@@ -205,7 +222,7 @@ def main():
       i += 2
 
   # check for errors
-  if fIn is None or fOut is None:
+  if fIn == None or fOut == None:
     print 'Error! Must specify input and output files'
     usage()
   if not sample1 or not sample2:
@@ -218,7 +235,8 @@ def main():
 
   # process file
   for line in fIn:
-    diff, pval, res = processLine(line.rstrip(), idx1, idx2, idxExtra)
+    diff, pval, res = processLine(line.rstrip(), cpg, \
+      idx1, idx2, idxExtra)
 
     # determine if result should be reported
     if res:
