@@ -3,6 +3,7 @@
 # JMG 5/29/16
 # Finding putative PCR duplicates.
 # (mimicking bismark's deduplicate script)
+# Version 4: counting results, including actual seq matches
 
 import sys
 import re
@@ -42,7 +43,7 @@ def main():
     fOut = open(args[1], 'w')
 
   pos = {}  # dict of positions
-  count = dups = uniq = 0
+  count = dups = uniq = notSeq = 0
   for line in f:
     if line[0] == '@':
       fOut.write(line)
@@ -60,29 +61,37 @@ def main():
     if chr in pos:
       if loc in pos[chr]:
         if rc in pos[chr][loc]:
-          dups += 1
+          if spl[9] in pos[chr][loc][rc]:
+            # location, strand, *and* seq match
+            dups += 1
+          else:
+            # everything matches except seq
+            pos[chr][loc][rc].append(spl[9])
+            fOut.write(line)
+            notSeq += 1
         else:
-          pos[chr][loc][rc] = 1
+          pos[chr][loc][rc] = [spl[9]]
           fOut.write(line)
           uniq += 1
       else:
         pos[chr][loc] = {}
-        pos[chr][loc][rc] = 1
+        pos[chr][loc][rc] = [spl[9]]
         fOut.write(line)
         uniq += 1
     else:
       pos[chr] = {}
       pos[chr][loc] = {}
-      pos[chr][loc][rc] = 1
+      pos[chr][loc][rc] = [spl[9]]
       fOut.write(line)
       uniq += 1
     count += 1
   f.close()
   fOut.close()
 
-  #print 'Reads: ', count
-  #print 'Dups:   ', dups
-  #print 'Unique:', uniq
+  sys.stderr.write('Reads: %10d\n' % count)
+  sys.stderr.write('Unique: %9d\n' % uniq)
+  sys.stderr.write('Dups: %11d\n' % dups)
+  sys.stderr.write('NotSeq: %9d\n' % notSeq)
 
 if __name__ == '__main__':
   main()
