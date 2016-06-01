@@ -3,7 +3,7 @@
 # JMG 5/29/16
 # Finding putative PCR duplicates.
 # (mimicking bismark's deduplicate script)
-# Version 4: counting results, including actual seq matches
+# Version 3: counting results, including actual seq matches
 
 import sys
 import re

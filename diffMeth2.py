@@ -5,17 +5,17 @@
 # Version 2: comparing sets of samples
 
 import sys, math
-scip = 0  # boolean for scipy import
-try:
-  from scipy import stats
-except ImportError:
-  print 'Warning! The scipy module is not installed'
-  print '  (see www.scipy.org/install.html).'
-  print '  All p-values will be reported as "NA".'
-  scip = 1
+#scip = 0  # boolean for scipy import
+#try:
+#  from scipy import stats
+#except ImportError:
+#  print 'Warning! The scipy module is not installed'
+#  print '  (see www.scipy.org/install.html).'
+#  print '  All p-values will be reported as "NA".'
+#  scip = 1
 
 def usage():
-  print "Usage: python diffMeth.py  [options]  -i <input>  -o <output> \ \n\
+  print "Usage: python diffMeth2.py  [options]  -i <input>  -o <output> \ \n\
       <groupList>                                                       \n\
     <groupList> Comma-separated list of sample names (as found in       \n\
                   the header of <input>)                                \n\
@@ -24,8 +24,8 @@ def usage():
   Options (whether or not to report a region):                          \n\
     -c <int>    Minimum number of CpGs in a region (def. 1)             \n\
     -d <float>  Minimum methylation difference between sample groups    \n\
-                  ([0-1]; def. 0 [all results reported])                \n\
-    -p <float>  Maximum p-value ([0-1]; def. 1 [all results reported])   "
+                  ([0-1]; def. 0 [all results reported])                 "
+    #-p <float>  Maximum p-value ([0-1]; def. 1 [all results reported])   "
   sys.exit(-1)
 
 def openFile(fname):
@@ -195,7 +195,7 @@ def main():
   # Default parameters
   cpg = 0    # min. number of CpGs
   d = 0      # min. methylation difference
-  p = 1      # max. p-value
+  #p = 1      # max. p-value
 
   # get command-line args
   args = sys.argv[1:]
@@ -213,8 +213,8 @@ def main():
       cpg = getInt(args[i+1])
     elif args[i] == '-d':
       d = getFloat(args[i+1])
-    elif args[i] == '-p':
-      p = getFloat(args[i+1])
+    #elif args[i] == '-p':
+      #p = getFloat(args[i+1])
     elif args[i] == '-h':
       usage()
     else:
