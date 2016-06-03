@@ -23,8 +23,9 @@ def parseCigar(cigar):
 
 def main():
   args = sys.argv[1:]
-  if len(args) < 2:
-    print 'Usage: python %s  <SAMfile>  <out>' % sys.argv[0]
+  if len(args) < 1:
+    print 'Usage: python %s  <SAMfile>  [<out>]' % sys.argv[0]
+    print '  Use \'-\' for stdin/stdout'
     sys.exit(-1)
   try:
     f = open(args[0], 'rU')
@@ -36,17 +37,20 @@ def main():
       print 'Error! Cannot open', args[0]
       sys.exit(-1)
 
-  # use '-' for stdout
-  if args[1] == '-':
-    fOut = sys.stdout
-  else:
-    fOut = open(args[1], 'w')
+  out = 0
+  if len(args) > 1:
+    # use '-' for stdout
+    if args[1] == '-':
+      fOut = sys.stdout
+    else:
+      fOut = open(args[1], 'w')
+    out = 1
 
   pos = {}  # dict of positions
   count = dups = uniq = notSeq = 0
   for line in f:
     if line[0] == '@':
-      fOut.write(line)
+      if out: fOut.write(line)
       continue
     spl = line.rstrip().split('\t')
 
@@ -67,26 +71,26 @@ def main():
           else:
             # everything matches except seq
             pos[chr][loc][rc].append(spl[9])
-            fOut.write(line)
+            if out: fOut.write(line)
             notSeq += 1
         else:
           pos[chr][loc][rc] = [spl[9]]
-          fOut.write(line)
+          if out: fOut.write(line)
           uniq += 1
       else:
         pos[chr][loc] = {}
         pos[chr][loc][rc] = [spl[9]]
-        fOut.write(line)
+        if out: fOut.write(line)
         uniq += 1
     else:
       pos[chr] = {}
       pos[chr][loc] = {}
       pos[chr][loc][rc] = [spl[9]]
-      fOut.write(line)
+      if out: fOut.write(line)
       uniq += 1
     count += 1
   f.close()
-  fOut.close()
+  if out: fOut.close()
 
   sys.stderr.write('Reads: %10d\n' % count)
   sys.stderr.write('Unique: %9d\n' % uniq)
