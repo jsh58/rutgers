@@ -19,14 +19,51 @@ def parseCigar(cigar):
     offset += int(d)
   return offset
 
-def parseSAM(f, fOut, chrom, start, end):
+def getXM(lis):
+  '''
+  Get "XM" methylation string.
+  '''
+  for t in lis:
+    spl = t.split(':')
+    if spl[0] == 'XM':
+      return spl[-1]
+  sys.stderr.write('Error! Cannot find XM in SAM record\n')
+  sys.exit(-1)
+
+def loadGen(fGen, chr):
+  '''
+  Load a chromosome from the given genome file.
+  '''
+  try:
+    f = open(fGen, 'rU')
+  except IOError:
+    sys.stderr.write('Error! Cannot open genome file %s\n' % fGen)
+    sys.exit(-1)
+
+  # find chromosome
+  seq = ''
+  for line in f:
+    if line.rstrip()[1:] == chr:
+      # save sequence
+      for line in f:
+        if line[0] == '>':
+          return seq
+        seq += line.rstrip()
+  if seq:
+    return seq
+  sys.stderr.write('Error! Cannot find chromosome %s\n' % chr)
+  sys.exit(-1)
+
+def parseSAM(f, fOut, chrom, start, end, meth):
   '''
   Parse the SAM file.
   '''
+  minLoc = 1000000000
+  maxLoc = 0
   count = total = 0
   for line in f:
     if line[0] == '@':
-      fOut.write(line)
+      #fOut.write(line)
       continue
     spl = line.rstrip().split('\t')
     count += 1
@@ -40,11 +77,16 @@ def parseSAM(f, fOut, chrom, start, end):
     loc = int(spl[3])
     loc3 = loc + len(spl[9]) + parseCigar(spl[5])
     if (loc >= start and loc <= end) or \
-       (loc3 >= start and loc3 <= end):
-      fOut.write(line)
+        (loc3 >= start and loc3 <= end):
+      meth[spl[0]] = (loc, getXM(spl[11:]))
+      #fOut.write(line)
       total += 1
+      if loc3 > maxLoc:
+        maxLoc = loc3
+      if loc < minLoc:
+        minLoc = loc
 
-  return count, total
+  return count, total, minLoc, maxLoc
 
 def main():
   '''
@@ -52,7 +94,8 @@ def main():
   '''
   args = sys.argv[1:]
   if len(args) < 5:
-    print 'Usage: python %s  <SAMfile>  <out>  <chr>  <start>  <end>' % sys.argv[0]
+    print 'Usage: python %s  <SAMfile>  <out> ' % sys.argv[0],
+    print '<chr>  <start>  <end>  [<genome>]'
     print '  Use \'-\' for stdin/stdout'
     sys.exit(-1)
   try:
@@ -71,6 +114,7 @@ def main():
   else:
     fOut = open(args[1], 'w')
 
+  # save region of interest
   chr = args[2]
   try:
     start = int(args[3])
@@ -79,8 +123,20 @@ def main():
     sys.stderr.write('Error! Cannot convert to int')
     sys.exit(-1)
 
-  count, total = parseSAM(f, fOut, chr, start, end)
+  # process file
+  meth = {}
+  count, total, minLoc, maxLoc = parseSAM(f, fOut, chr, start, end, meth)
   f.close()
+
+  # get genomic segment
+  if len(args) > 5:
+    seq = loadGen(args[5], chr)
+    fOut.write('>%s %d %d\n' % (chr, minLoc, maxLoc))
+    fOut.write(seq[minLoc-1:maxLoc-1].upper() + '\n')
+  def firstVal(tup):
+    return tup[1][0]
+  for read in sorted(meth.items(), key=firstVal):
+    fOut.write(' ' * (meth[read[0]][0] - minLoc) + meth[read[0]][1] + '\n')
   fOut.close()
 
   sys.stderr.write('Reads analyzed: %d\n' % count)
