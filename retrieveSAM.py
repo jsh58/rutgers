@@ -6,18 +6,29 @@
 import sys
 import re
 
+def getInt(arg):
+  '''
+  Convert given argument to int.
+  '''
+  try:
+    val = int(arg)
+  except ValueError:
+    sys.stderr.write('Error! Cannot convert %s to int\n' % arg)
+    #usage()
+  return val
+
 def parseCigar(cigar):
   '''
-  Determine indel offset of alignment from CIGAR.
+  Return in/del offset, plus list of tuples for cigar.
   '''
+  parts = re.findall(r'(\d+)([IDM])', cigar)
   offset = 0
-  ins = re.findall(r'(\d+)I', cigar)
-  for i in ins:
-    offset -= int(i)
-  de = re.findall(r'(\d+)D', cigar)
-  for d in de:
-    offset += int(d)
-  return offset
+  for part in parts:
+    if part[1] == 'D':
+      offset += int(part[0])
+    elif part[1] == 'I':
+      offset -= int(part[0])
+  return offset, parts
 
 def getXM(lis):
   '''
@@ -29,6 +40,25 @@ def getXM(lis):
       return spl[-1]
   sys.stderr.write('Error! Cannot find XM in SAM record\n')
   sys.exit(-1)
+
+def adjustCig(seq, cigar):
+  '''
+  Adjust the given string based on the cigar,
+    inserting "-" for each D.
+  '''
+  ans = ''
+  pos = 0
+  for c in cigar:
+    dist = int(c[0])
+    if c[1] == 'M':
+      ans += seq[pos:pos+dist]
+      pos += dist
+    elif c[1] == 'I':
+      ans += seq[pos:pos+dist]
+      pos += dist
+    elif c[1] == 'D':
+      ans += '-' * dist
+  return ans
 
 def loadGen(fGen, chr):
   '''
@@ -56,7 +86,8 @@ def loadGen(fGen, chr):
 
 def parseSAM(f, fOut, chrom, start, end, meth):
   '''
-  Parse the SAM file.
+  Parse the SAM file. Select reads overlapping the
+    given coordinates.
   '''
   minLoc = 1000000000
   maxLoc = 0
@@ -75,10 +106,12 @@ def parseSAM(f, fOut, chrom, start, end, meth):
 
     # write if within bounds
     loc = int(spl[3])
-    loc3 = loc + len(spl[9]) + parseCigar(spl[5])
+    offset, cigar = parseCigar(spl[5])
+    loc3 = loc + len(spl[9]) + offset
     if (loc >= start and loc <= end) or \
-        (loc3 >= start and loc3 <= end):
-      meth[spl[0]] = (loc, getXM(spl[11:]))
+        (loc3 >= start and loc3 <= end) or \
+        (loc <= start and loc3 >= end):
+      meth[spl[0]] = (loc, adjustCig(getXM(spl[11:]), cigar))
       #fOut.write(line)
       total += 1
       if loc3 > maxLoc:
@@ -116,12 +149,8 @@ def main():
 
   # save region of interest
   chr = args[2]
-  try:
-    start = int(args[3])
-    end = int(args[4])
-  except ValueError:
-    sys.stderr.write('Error! Cannot convert to int')
-    sys.exit(-1)
+  start = getInt(args[3])
+  end = getInt(args[4])
 
   # process file
   meth = {}
@@ -136,7 +165,9 @@ def main():
   def firstVal(tup):
     return tup[1][0]
   for read in sorted(meth.items(), key=firstVal):
-    fOut.write(' ' * (meth[read[0]][0] - minLoc) + meth[read[0]][1] + '\n')
+    #fOut.write(' ' * (meth[read[0]][0] - minLoc) + meth[read[0]][1] + '\n')
+    fOut.write(' ' * (meth[read[0]][0] - minLoc) + meth[read[0]][1] + \
+      '  ' + read[0] + '\n')
   fOut.close()
 
   sys.stderr.write('Reads analyzed: %d\n' % count)
