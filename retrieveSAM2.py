@@ -127,6 +127,32 @@ def getInt(arg):
     #usage()
   return val
 
+def openRead(filename):
+  '''
+  Open filename for reading. '-' indicates stdin.
+  '''
+  if filename == '-':
+    return sys.stdin
+  try:
+    f = open(filename, 'rU')
+  except IOError:
+    sys.stderr.write('Error! Cannot open %s for reading\n' % filename)
+    sys.exit(-1)
+  return f
+
+def openWrite(filename):
+  '''
+  Open filename for writing. '-' indicates stdout.
+  '''
+  if filename == '-':
+    return sys.stdout
+  try:
+    f = open(filename, 'w')
+  except IOError:
+    sys.stderr.write('Error! Cannot open %s for writing\n' % filename)
+    sys.exit(-1)
+  return f
+
 def parseCigar(cigar):
   '''
   Return in/del offset, plus list of tuples for cigar.
@@ -151,20 +177,15 @@ def getXM(lis):
   sys.stderr.write('Error! Cannot find XM in SAM record\n')
   sys.exit(-1)
 
-def loadGen(fGen, chr):
+def loadGen(fGen, chrom):
   '''
   Load a chromosome from the given genome file.
   '''
-  try:
-    f = open(fGen, 'rU')
-  except IOError:
-    sys.stderr.write('Error! Cannot open genome file %s\n' % fGen)
-    sys.exit(-1)
-
   # find chromosome
+  f = openRead(fGen)
   seq = ''
   for line in f:
-    if line.rstrip()[1:] == chr:
+    if line.rstrip()[1:] == chrom:
       # save sequence
       for line in f:
         if line[0] == '>':
@@ -172,7 +193,7 @@ def loadGen(fGen, chr):
         seq += line.rstrip()
   if seq:
     return seq
-  sys.stderr.write('Error! Cannot find chromosome %s\n' % chr)
+  sys.stderr.write('Error! Cannot find chromosome %s\n' % chrom)
   sys.exit(-1)
 
 def parseSAM(f, chrom, start, end, reads):
@@ -221,25 +242,10 @@ def main():
     print '<chr>  <start>  <end>  [<genome>]'
     print '  Use \'-\' for stdin/stdout'
     sys.exit(-1)
-  try:
-    f = open(args[0], 'rU')
-  except IOError:
-    # use '-' for stdin
-    if args[0] == '-':
-      f = sys.stdin
-    else:
-      sys.stderr.write('Error! Cannot open %s\n' % args[0])
-      sys.exit(-1)
 
-  # use '-' for stdout
-  if args[1] == '-':
-    fOut = sys.stdout
-  else:
-    try:
-      fOut = open(args[1], 'w')
-    except IOError:
-      sys.stderr.write('Error! Cannot open %s for writing\n' % args[1])
-      sys.exit(-1)
+  # open files
+  f = openRead(args[0])
+  fOut = openWrite(args[1])
 
   # save region of interest
   chr = args[2]
