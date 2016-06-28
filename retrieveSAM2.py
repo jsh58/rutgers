@@ -124,7 +124,7 @@ def getInt(arg):
     val = int(arg)
   except ValueError:
     sys.stderr.write('Error! Cannot convert %s to int\n' % arg)
-    #usage()
+    sys.exit(-1)
   return val
 
 def openRead(filename):

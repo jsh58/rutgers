@@ -22,6 +22,7 @@ def main():
       ' <chrom>  <pos>  <len>  [rc]'
     print '  <genome>  FASTA format'
     print '  <pos>     0-based position'
+    print '  <len>     length of genome segment'
     print '  [rc]      option to print reverse-complement'
     sys.exit(-1)
 
