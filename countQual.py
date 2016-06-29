@@ -50,7 +50,7 @@ def main():
   if len(args) < 1:
     print 'Usage: python %s  <SAMfile>  [<qual>]' % sys.argv[0]
     print '  Use \'-\' for stdin/stdout'
-    print '  <qual>   Min. quality score for "good" (def. 30)'
+    print '  <qual>   Quality score for good/bad classification (def. 30)'
     sys.exit(-1)
   try:
     f = open(args[0], 'rU')
@@ -62,6 +62,7 @@ def main():
       sys.stderr.write('Error! Cannot open %s\n' % args[0])
       sys.exit(-1)
 
+  # get minimum quality value
   minQual = 30
   if len(args) > 1:
     try:
@@ -82,8 +83,12 @@ def main():
     if i: print 'Good\t',
     else: print 'Bad\t',
     for j in range(len(lis)):
-      print str(res[i][j]) + '\t',
+      print '%d\t' % res[i][j],
     print
+  print 'BadFrac',
+  for j in range(len(lis)):
+    print '\t%.3f' % (res[0][j] / float(res[0][j] + res[1][j])),
+  print
 
   sys.stderr.write('Reads analyzed: %d\n' % count)
 
