@@ -16,9 +16,8 @@ def parseFASTQ(f, lis):
   '''
   total = 0
   qual = [[] for i in range(5)]
-  while 1:
-    head = f.readline()
-    if not head: break
+  head = f.readline()
+  while head:
     seq = f.readline().rstrip()
     plus = f.readline()
     qul = f.readline().rstrip()
@@ -29,11 +28,12 @@ def parseFASTQ(f, lis):
       qual[idx].append( ord(qul[i]) - 33 )
 
     total += 1
+    head = f.readline()
 
   # calculate average quality
   avgQual = []
   for i in range(len(qual)):
-    avgQual.append( numpy.mean( qual[i] ), numpy.std( qual[i] ), len( qual[i] ))
+    avgQual.append(( numpy.mean( qual[i] ), numpy.std( qual[i] ), len( qual[i] ) ))
   return avgQual, total
 
 
@@ -44,6 +44,7 @@ def main():
   args = sys.argv[1:]
   if len(args) < 1:
     print 'Usage: python %s  <FASTQfile>' % sys.argv[0]
+    print '  file must be gzip-compressed'
     sys.exit(-1)
 
   try:
@@ -57,7 +58,10 @@ def main():
   f.close()
 
   for i in range(len(lis)):
-    print lis[i], '\t', avgQual[i]
+    print lis[i],
+    for j in range(len(avgQual[i])):
+      print '\t', avgQual[i][j],
+    print
 
   sys.stderr.write('Reads analyzed: %d\n' % total)
 
