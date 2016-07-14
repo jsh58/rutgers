@@ -20,20 +20,28 @@ def main():
   if len(args) < 4:
     print 'Usage: python %s  <genome> ' % sys.argv[0] + \
       ' <chrom>  <pos>  <len>  [rc]'
-    print '  <genome>  FASTA format'
+    print '  <genome>  In FASTA format (can be gzip compressed)'
+    print '  <chrom>   Chromosome name (first space-delimited'
+    print '              token in FASTA header)'
     print '  <pos>     0-based position'
     print '  <len>     length of genome segment'
     print '  [rc]      option to print reverse-complement'
     sys.exit(-1)
 
   try:
-    f = open(args[0], 'rU')
+    if args[0][-3:] == '.gz':
+      f = gzip.open(args[0], 'rb')
+    else:
+      f = open(args[0], 'rU')
   except IOError:
-    print 'Error! Cannot open genome file %s' % args[0]
+    sys.stderr.write('Error! Cannot open %s\n' % args[0])
     sys.exit(-1)
 
   # save CL args
-  chrom = '>' + args[1]
+  chrom = args[1]
+  if chrom[0] != '>':
+    chrom = '>' + chrom
+
   try:
     pos = int(args[2])
     length = int(args[3])
@@ -47,7 +55,7 @@ def main():
   # find chromosome
   chr = ''
   for line in f:
-    if line.rstrip() == chrom:
+    if line.rstrip().split()[0] == chrom:
       # save sequence
       for line in f:
         if line[0] == '>':

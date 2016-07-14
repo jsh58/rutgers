@@ -41,7 +41,7 @@ class Read():
   def adjustMeth(self):
     '''
     Remove non-CpG methylation data from methylation string.
-    Convert CpG methylation data to '/' if quality is low.
+    #Convert CpG methylation data to '/' if quality is low.
     '''
     meth = self.meth
     for c in ['h', 'H', 'x', 'X']:
@@ -51,8 +51,9 @@ class Read():
     for c in ['z', 'Z']:
       idx = meth.find(c)
       while idx != -1:
-        if ord(self.qual[idx]) - 33 < 30:
-          meth = meth[:idx] + '/' + meth[idx+1:]
+        # convert low qual bases (< 30) to '/'
+        #if ord(self.qual[idx]) - 33 < 30:
+        #  meth = meth[:idx] + '/' + meth[idx+1:]
         #print c, self.qual[idx], ord(self.qual[idx]), '\n'
         idx = meth.find(c, idx + 1)
     self.meth = meth
