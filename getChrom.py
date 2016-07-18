@@ -4,6 +4,7 @@
 # Retrieve a segment from a genome.
 
 import sys
+import gzip
 
 def revComp(seq):
   rc = ''
