@@ -105,6 +105,8 @@ def processFile(fname, minReads, d, tot, samples):
 
   # save sample name
   sample = fname.split('.')[0]
+  while sample in samples:
+    sample += '-'
   samples.append(sample)
 
   # load counts from file
@@ -192,7 +194,7 @@ def main():
   samples = []  # list of sample names
   for fname in fIn:
     if verbose:
-      print '  file:' + fname
+      print '  file: ' + fname
     processFile(fname, minReads, d, tot, samples)
 
   # produce output
