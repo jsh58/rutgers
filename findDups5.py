@@ -92,15 +92,7 @@ def main():
     for p in pos:
 
       if len(pos[p]) > 1:
-
-        seq = ''
-        max = 0
-        for spl in pos[p]:
-          if spl[1] > max:
-            max = spl[1]
-            seq = spl[0]
-        fOut.write(first[p + (seq,)])
-
+        fOut.write(first[p + (max(pos[p], key=lambda x: x[1])[0],)])
       else:
         fOut.write(first[p + (pos[p][0][0],)])
 
