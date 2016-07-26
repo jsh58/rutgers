@@ -46,7 +46,7 @@ def openWrite(filename):
 
 def parseCigar(cigar):
   '''
-  Return in/del offset, plus list of tuples for cigar.
+  Return in/del offset, plus string representation of cigar.
   '''
   parts = re.findall(r'(\d+)([IDM])', cigar)
   offset = 0
@@ -106,6 +106,9 @@ def parseSAM(f, d):
       continue
 
     spl = line.rstrip().split('\t')
+    if len(spl) < 12:
+      sys.stderr.write('Error! Poorly formatted SAM record\n' + line)
+      sys.exit(-1)
     chrom = spl[2]
     pos = getInt(spl[3])
     offset, cigar = parseCigar(spl[5])
@@ -118,19 +121,22 @@ def parseSAM(f, d):
       sys.stderr.write('Error! Cannot find chromosome %s in genome\n' % chrom)
       sys.exit(-1)
 
-    offset = 0  # in/del offset
+    offset = 0  # reset in/del offset -- do not use net offset from parseCigar()
     cigPos = 0
     for i in range(len(meth)):
 
       if meth[i] in ['z', 'Z']:
+
+        # location is C of 'CG' on the forward strand
         loc = pos + i - rc + offset
 
-        # for "novel" CpG site, adjust location
+        # for "novel" CpG sites created by a deletion,
+        #   adjust location to the 5' end of the 'D's
         if rc and cigar[cigPos-1] == 'D':
           j = cigPos - 1
           while j > -1 and cigar[j] != 'M':
             j -= 1
-          loc -= cigPos - j
+          loc -= cigPos - j - 1
 
         # save methylation data
         if loc not in d[chrom]:
@@ -140,16 +146,20 @@ def parseSAM(f, d):
         else:
           d[chrom][loc][0] += 1
 
+
+      if cigPos < len(cigar) and (cigar[cigPos] == 'I' or \
+          (rc and cigar[cigPos-1] == 'I')):
+        if meth[i] in ['z', 'Z']:
+          print line
+          #sys.exit(0)
+
       # change in/del offset
       cigPos += 1
       while cigPos < len(cigar) and cigar[cigPos] == 'D':
         offset += 1
         cigPos += 1
-      if cigar[i] == 'I':  # and cigar[i-1] != 'I'
+      if cigPos < len(cigar) and cigar[cigPos] == 'I':  # and cigar[i-1] != 'I'
         offset -= 1
-        #if meth[i] in ['z', 'Z']:
-        #  print line
-        #  sys.exit(0)
 
 
     count += 1
@@ -164,7 +174,7 @@ def main():
   args = sys.argv[1:]
   if len(args) < 2:
     print 'Usage: python %s  <SAMfile>  <out> ' % sys.argv[0]
-    print '  Use \'-\' for stdin'
+    print '  Use \'-\' for stdin (use -h option with samtools view)'
     sys.exit(-1)
 
   # open files
