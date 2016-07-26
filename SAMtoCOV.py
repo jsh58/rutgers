@@ -7,117 +7,6 @@
 import sys
 import re
 
-class Read():
-  '''
-  A class for representing a read's position,
-    seq, qual, and methylation string.
-  '''
-  def __init__(self, header, chr, pos, cigar, seq, qual, meth):
-    self.header = header
-    self.chr = chr
-    self.pos = pos
-    self.seq = seq
-    self.qual = qual
-    self.meth = meth
-
-    # convert cigar to 'M/I/D' string
-    cig = ''
-    for c in cigar:
-      dist = int(c[0])
-      cig += c[1] * dist
-    self.cigar = cig
-
-  def getPos(self):
-    return self.pos
-
-  def getCigar(self):
-    return self.cigar
-
-  def setCigar(self, cigar):
-    self.cigar = cigar
-
-  def setMeth(self, meth):
-    self.meth = meth
-
-  def adjustMeth(self):
-    '''
-    Remove non-CpG methylation data from methylation string.
-    #Convert CpG methylation data to '/' if quality is low.
-    '''
-    meth = self.meth
-    for c in ['h', 'H', 'x', 'X']:
-      meth = meth.replace(c, '.')
-
-    # remove low quality CpG bases -- min qual 30
-    for c in ['z', 'Z']:
-      idx = meth.find(c)
-      while idx != -1:
-        # convert low qual bases (< 30) to '/'
-        #if ord(self.qual[idx]) - 33 < 30:
-        #  meth = meth[:idx] + '/' + meth[idx+1:]
-        #print c, self.qual[idx], ord(self.qual[idx]), '\n'
-        idx = meth.find(c, idx + 1)
-    self.meth = meth
-
-  def adjustCig(self, minLoc):
-    '''
-    Adjust the cigar -- add gaps to 5' end.
-    '''
-    # add gaps to 5' end
-    offset = self.pos - minLoc
-    self.cigar = 'G' * offset + self.cigar
-
-  def getMeth(self):
-    '''
-    Construct the methylation string,
-      including gaps.
-    '''
-    ans = ''
-    loc = 0  # location in self.meth
-    for i in range(len(self.cigar)):
-      # add bases from methylation string
-      c = self.cigar[i]
-      if c == 'D':
-        ans += '-'
-      elif c == 'G':
-        ans += ' '
-      elif c in ['M', 'I']:
-        ans += self.meth[loc]
-        loc += 1
-      else:
-        sys.stderr.write('Error! Unknown CIGAR base: %s\n' % c)
-        sys.exit(-1)
-    return ans
-
-
-def addIns(reads):
-  '''
-  Add inserted bases to the cigars.
-  '''
-  # create matrix of cigars
-  mat = []
-  for read in reads:
-    mat.append(read.getCigar())
-
-  # check each position for 'I'
-  i = 0
-  while i < len(mat[-1]):
-    for cig in mat:
-      if i < len(cig) and cig[i] == 'I':
-        for j in range(len(mat)):
-          if i < len(mat[j]) and mat[j][i] != 'I':
-            if i == 0 or mat[j][i-1] == 'G':
-              mat[j] = mat[j][:i] + 'G' + mat[j][i:]
-            else:
-              mat[j] = mat[j][:i] + 'D' + mat[j][i:]
-        break
-    i += 1
-
-  # save adjusted cigars
-  for i in range(len(reads)):
-    reads[i].setCigar(mat[i])
-
-
 def getInt(arg):
   '''
   Convert given argument to int.
@@ -161,12 +50,14 @@ def parseCigar(cigar):
   '''
   parts = re.findall(r'(\d+)([IDM])', cigar)
   offset = 0
+  cigar = ''
   for part in parts:
     if part[1] == 'D':
       offset += int(part[0])
     elif part[1] == 'I':
       offset -= int(part[0])
-  return offset, parts
+    cigar += int(part[0]) * part[1]
+  return offset, cigar
 
 def getTag(lis, tag):
   '''
@@ -200,12 +91,9 @@ def loadGen(fGen, chrom):
 
 def parseSAM(f, d):
   '''
-  Parse the SAM file. Select reads overlapping the
-    given coordinates.
+  Parse the SAM file. Save methylation data.
   '''
   genome = []  # ordered chromosome names
-  minLoc = 1000000000
-  maxLoc = 0
   count = total = 0
   for line in f:
 
@@ -230,15 +118,39 @@ def parseSAM(f, d):
       sys.stderr.write('Error! Cannot find chromosome %s in genome\n' % chrom)
       sys.exit(-1)
 
+    offset = 0  # in/del offset
+    cigPos = 0
     for i in range(len(meth)):
+
       if meth[i] in ['z', 'Z']:
-        loc = pos + i - rc  # need to adjust based on cigar I/D
+        loc = pos + i - rc + offset
+
+        # for "novel" CpG site, adjust location
+        if rc and cigar[cigPos-1] == 'D':
+          j = cigPos - 1
+          while j > -1 and cigar[j] != 'M':
+            j -= 1
+          loc -= cigPos - j
+
+        # save methylation data
         if loc not in d[chrom]:
           d[chrom][loc] = [0, 0]
         if meth[i] == 'z':
           d[chrom][loc][1] += 1
         else:
           d[chrom][loc][0] += 1
+
+      # change in/del offset
+      cigPos += 1
+      while cigPos < len(cigar) and cigar[cigPos] == 'D':
+        offset += 1
+        cigPos += 1
+      if cigar[i] == 'I':  # and cigar[i-1] != 'I'
+        offset -= 1
+        #if meth[i] in ['z', 'Z']:
+        #  print line
+        #  sys.exit(0)
+
 
     count += 1
 
@@ -251,8 +163,7 @@ def main():
   '''
   args = sys.argv[1:]
   if len(args) < 2:
-    print 'Usage: python %s  <SAMfile>  <out> ' % sys.argv[0]#,
-    #print '<chr>  <start>  <end>  [<genome>]'
+    print 'Usage: python %s  <SAMfile>  <out> ' % sys.argv[0]
     print '  Use \'-\' for stdin'
     sys.exit(-1)
 
@@ -260,32 +171,25 @@ def main():
   f = openRead(args[0])
   fOut = openWrite(args[1])
 
-  # save region of interest
-  #chr = args[2]
-  #start = getInt(args[3])
-  #end = getInt(args[4])
-
   # process file
   d = {}
   genome = parseSAM(f, d)
-  f.close()
+  if f != sys.stdin:
+    f.close()
 
   # print output
   for chrom in genome:
     for loc in sorted(d[chrom]):
-      print chrom, loc, d[chrom][loc]
-    raw_input()
+      #fOut.write('%s\t%d\t%d\t+\t%d\t%d\n' % (chrom, loc, loc+1, \
+      #  d[chrom][loc][0], d[chrom][loc][1]))
+      fOut.write('%s\t%d\t%d\t%.6f\t%d\t%d\n' % (chrom, loc, loc+1, \
+        100.0 * d[chrom][loc][0] / ( d[chrom][loc][0] + d[chrom][loc][1] ), \
+        d[chrom][loc][0], d[chrom][loc][1]))
+  if fOut != sys.stdout:
+    fOut.close()
 
-
-
-  for chrom in genome:
-    fOut.write('>%s %d %d\n' % (chr, minLoc, maxLoc))
-    fOut.write(read.getMeth() + '\n')
-    #fOut.write(read.getCigar() + '\n')
-  fOut.close()
-
-  sys.stderr.write('Reads analyzed: %d\n' % count)
-  sys.stderr.write('Reads written to %s: %d\n' % (args[1], total))
+  #sys.stderr.write('Reads analyzed: %d\n' % count)
+  #sys.stderr.write('Reads written to %s: %d\n' % (args[1], total))
 
 if __name__ == '__main__':
   main()
