@@ -66,10 +66,12 @@ class Read():
     offset = self.pos - minLoc
     self.cigar = 'G' * offset + self.cigar
 
-  def getMeth(self):
+  def getMeth(self, s):
     '''
-    Construct the methylation string,
-      including gaps.
+    Construct a string, including gaps, using
+      the given string and the read's cigar.
+    Given string will be either the read's
+      methylation string or sequence.
     '''
     ans = ''
     loc = 0  # location in self.meth
@@ -81,7 +83,7 @@ class Read():
       elif c == 'G':
         ans += ' '
       elif c in ['M', 'I']:
-        ans += self.meth[loc]
+        ans += s[loc]
         loc += 1
       else:
         sys.stderr.write('Error! Unknown CIGAR base: %s\n' % c)
@@ -240,7 +242,7 @@ def main():
   args = sys.argv[1:]
   if len(args) < 5:
     print 'Usage: python %s  <SAMfile>  <out> ' % sys.argv[0],
-    print '<chr>  <start>  <end>  [<genome>]'
+    print '<chr>  <start>  <end>  [<genome>] [\'seq\']'
     print '  Use \'-\' for stdin/stdout'
     sys.exit(-1)
 
@@ -258,7 +260,8 @@ def main():
   count, total, minLoc, maxLoc = parseSAM(f, chr, \
     start, end, reads)
   reads = sorted(reads, key=Read.getPos)  # sort by position
-  f.close()
+  if f != sys.stdin:
+    f.close()
 
   # get genomic segment
   if len(args) > 5:
@@ -276,9 +279,12 @@ def main():
   # print output
   fOut.write('>%s %d %d\n' % (chr, minLoc, maxLoc))
   for read in reads:
-    fOut.write(read.getMeth() + '\n')
-    #fOut.write(read.getCigar() + '\n')
-  fOut.close()
+    if len(args) > 6 and args[6] == 'seq':
+      fOut.write(read.getMeth(read.seq) + '\n')
+    else:
+      fOut.write(read.getMeth(read.meth) + '\n')
+  if fOut != sys.stdout:
+    fOut.close()
 
   sys.stderr.write('Reads analyzed: %d\n' % count)
   sys.stderr.write('Reads written to %s: %d\n' % (args[1], total))

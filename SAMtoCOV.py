@@ -7,6 +7,19 @@
 import sys
 import re
 
+def usage():
+  print "Usage: python SAMtoCOV.py  <SAM>  <OUT>                \n\
+                                                                \n\
+    <SAM>   SAM alignment file produced by Bismark --           \n\
+              can use '-' for stdin, but must specify '-h'      \n\
+              with samtools view, e.g.:                         \n\
+            samtools view -h <BAM> | python SAMtoCOV.py - <OUT> \n\
+                                                                \n\
+    <OUT>   Output file listing counts of methylated and        \n\
+              unmethylated CpGs (similar to that produced by    \n\
+              Bismark's coverage2cytosine with --merge_CpG)      "
+  sys.exit(-1)
+
 def getInt(arg):
   '''
   Convert given argument to int.
@@ -70,31 +83,13 @@ def getTag(lis, tag):
   sys.stderr.write('Error! Cannot find ' + tag + ' in SAM record\n')
   sys.exit(-1)
 
-def loadGen(fGen, chrom):
-  '''
-  Load a chromosome from the given genome file.
-  '''
-  # find chromosome
-  f = openRead(fGen)
-  seq = ''
-  for line in f:
-    if line.rstrip()[1:] == chrom:
-      # save sequence
-      for line in f:
-        if line[0] == '>':
-          return seq
-        seq += line.rstrip()
-  if seq:
-    return seq
-  sys.stderr.write('Error! Cannot find chromosome %s\n' % chrom)
-  sys.exit(-1)
-
 def parseSAM(f, d):
   '''
   Parse the SAM file. Save methylation data.
   '''
   genome = []  # ordered chromosome names
-  count = total = 0
+  ins = {}     # for novel CpGs caused by insertion
+  count = 0
   for line in f:
 
     # save chromosome names
@@ -105,6 +100,7 @@ def parseSAM(f, d):
         genome.append(spl[1])
       continue
 
+    # load SAM data
     spl = line.rstrip().split('\t')
     if len(spl) < 12:
       sys.stderr.write('Error! Poorly formatted SAM record\n' + line)
@@ -112,17 +108,18 @@ def parseSAM(f, d):
     chrom = spl[2]
     pos = getInt(spl[3])
     offset, cigar = parseCigar(spl[5])
-    meth = getTag(spl[11:], 'XM')
+    meth = getTag(spl[11:], 'XM')  # methylation string from Bismark
 
     rc = 0
     if getInt(spl[1]) & 0x10:
-      rc = 1
+      rc = 1  # alignment is to reverse strand
     if chrom not in d:
       sys.stderr.write('Error! Cannot find chromosome %s in genome\n' % chrom)
       sys.exit(-1)
 
+    # check methylation string for CpG sites
     offset = 0  # reset in/del offset -- do not use net offset from parseCigar()
-    cigPos = 0
+    cigPos = 0  # position in cigar -- mirrors i
     for i in range(len(meth)):
 
       if meth[i] in ['z', 'Z']:
@@ -138,34 +135,43 @@ def parseSAM(f, d):
             j -= 1
           loc -= cigPos - j - 1
 
-        # save methylation data
-        if loc not in d[chrom]:
-          d[chrom][loc] = [0, 0]
-        if meth[i] == 'z':
-          d[chrom][loc][1] += 1
+        # for "novel" CpG sites created by an insertion,
+        #   save to 'ins' dictionary
+        if (not rc and cigar[cigPos] == 'I') or \
+            (rc and cigPos > 0 and cigar[cigPos-1] == 'I'):
+          if (chrom, loc) not in ins:
+            ins[(chrom, loc)] = [0, 0]
+          if meth[i] == 'z':
+            ins[(chrom, loc)][1] += 1
+          else:
+            ins[(chrom, loc)][0] += 1
+
         else:
-          d[chrom][loc][0] += 1
 
-
-      if cigPos < len(cigar) and (cigar[cigPos] == 'I' or \
-          (rc and cigar[cigPos-1] == 'I')):
-        if meth[i] in ['z', 'Z']:
-          print line
-          #sys.exit(0)
+          # save methylation data
+          if loc not in d[chrom]:
+            d[chrom][loc] = [0, 0]
+          if meth[i] == 'z':
+            d[chrom][loc][1] += 1
+          else:
+            d[chrom][loc][0] += 1
 
       # change in/del offset
       cigPos += 1
       while cigPos < len(cigar) and cigar[cigPos] == 'D':
         offset += 1
         cigPos += 1
-      if cigPos < len(cigar) and cigar[cigPos] == 'I':  # and cigar[i-1] != 'I'
+      if cigPos < len(cigar) and cigar[cigPos] == 'I':
         offset -= 1
-
 
     count += 1
 
-  sys.stderr.write('Reads analyzed: ' + str(count) + '\n')
-  return genome
+  # warn about novel inserted CpGs
+  if ins:
+    sys.stderr.write('Warning! Novel CpG(s) caused by ' + \
+      'insertion(s) -- will be ignored.\n')
+
+  return genome, count
 
 def main():
   '''
@@ -173,9 +179,7 @@ def main():
   '''
   args = sys.argv[1:]
   if len(args) < 2:
-    print 'Usage: python %s  <SAMfile>  <out> ' % sys.argv[0]
-    print '  Use \'-\' for stdin (use -h option with samtools view)'
-    sys.exit(-1)
+    usage()
 
   # open files
   f = openRead(args[0])
@@ -183,7 +187,7 @@ def main():
 
   # process file
   d = {}
-  genome = parseSAM(f, d)
+  genome, count = parseSAM(f, d)
   if f != sys.stdin:
     f.close()
 
@@ -198,7 +202,7 @@ def main():
   if fOut != sys.stdout:
     fOut.close()
 
-  #sys.stderr.write('Reads analyzed: %d\n' % count)
+  sys.stderr.write('Reads analyzed: %d\n' % count)
   #sys.stderr.write('Reads written to %s: %d\n' % (args[1], total))
 
 if __name__ == '__main__':
