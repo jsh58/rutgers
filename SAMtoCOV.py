@@ -2,7 +2,7 @@
 
 # JMG 7/21/16
 # Producing methylation summary information
-#   directly from a SAM file.
+#   directly from a SAM file made by Bismark.
 
 import sys
 import re
@@ -83,20 +83,74 @@ def getTag(lis, tag):
   sys.stderr.write('Error! Cannot find ' + tag + ' in SAM record\n')
   sys.exit(-1)
 
-def parseSAM(f, d):
+def saveMeth(d, chrom, loc, meth):
+  '''
+  Save the methylation info for a given genomic position
+    to the given dict.
+  '''
+  if chrom not in d:
+    d[chrom] = {}
+  if loc not in d[chrom]:
+    d[chrom][loc] = [0, 0]
+  if meth == 'z':
+    d[chrom][loc][1] += 1  # unmethylated: index 1
+  else:
+    d[chrom][loc][0] += 1  # methylated: index 0
+
+def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins):
+  '''
+  Load methylation info using a methylation string (strXM).
+  '''
+  offset = 0  # in/del offset
+  cigPos = 0  # position in cigar -- mirrors i (position in meth)
+  for i in range(len(strXM)):
+
+    # CpG methylation calls are 'z' (unmethylated) or 'Z' (methylated)
+    if strXM[i] in ['z', 'Z']:
+
+      # location is C of 'CG' on the forward strand
+      loc = pos + i - rc + offset
+
+      # for "novel" CpG sites created by a deletion,
+      #   adjust location to the 5' end of the 'D's
+      if rc and cigar[cigPos-1] == 'D':
+        j = cigPos - 1
+        while j > -1 and cigar[j] != 'M':
+          j -= 1
+        loc -= cigPos - j - 1
+
+      # for "novel" CpG sites created by an insertion,
+      #   save to 'ins' dictionary
+      if (not rc and cigar[cigPos] == 'I') or \
+          (rc and cigPos > 0 and cigar[cigPos-1] == 'I'):
+        saveMeth(ins, chrom, loc, strXM[i])
+
+      # otherwise, save to regular 'meth' dict
+      else:
+        saveMeth(meth, chrom, loc, strXM[i])
+
+    # change in/del offset
+    cigPos += 1
+    while cigPos < len(cigar) and cigar[cigPos] == 'D':
+      offset += 1
+      cigPos += 1
+    if cigPos < len(cigar) and cigar[cigPos] == 'I':
+      offset -= 1
+
+def parseSAM(f, meth):
   '''
   Parse the SAM file. Save methylation data.
   '''
-  genome = []  # ordered chromosome names
+  genome = []  # for chromosome names, ordered in SAM header
   ins = {}     # for novel CpGs caused by insertion
-  count = 0
+  total = mapped = 0  # counting variables
   for line in f:
 
     # save chromosome names
     if line[0] == '@':
       spl = line.rstrip().split('\t')[1].split(':')
       if line[1:3] == 'SQ' and spl[0] == 'SN':
-        d[spl[1]] = {}
+        meth[spl[1]] = {}
         genome.append(spl[1])
       continue
 
@@ -105,73 +159,37 @@ def parseSAM(f, d):
     if len(spl) < 12:
       sys.stderr.write('Error! Poorly formatted SAM record\n' + line)
       sys.exit(-1)
-    chrom = spl[2]
-    pos = getInt(spl[3])
-    offset, cigar = parseCigar(spl[5])
-    meth = getTag(spl[11:], 'XM')  # methylation string from Bismark
+    total += 1
 
+    # get alignment info from flag
+    flag = getInt(spl[1])
+    if flag & 0x4:
+      continue  # skip unmapped
+    mapped += 1
     rc = 0
-    if getInt(spl[1]) & 0x10:
+    if flag & 0x10:
       rc = 1  # alignment is to reverse strand
-    if chrom not in d:
+
+    # load chrom, position
+    chrom = spl[2]
+    if chrom not in meth:
       sys.stderr.write('Error! Cannot find chromosome %s in genome\n' % chrom)
       sys.exit(-1)
+    pos = getInt(spl[3])
+
+    # load CIGAR, methylation string
+    offset, cigar = parseCigar(spl[5])
+    strXM = getTag(spl[11:], 'XM')  # methylation string from Bismark
 
     # check methylation string for CpG sites
-    offset = 0  # reset in/del offset -- do not use net offset from parseCigar()
-    cigPos = 0  # position in cigar -- mirrors i
-    for i in range(len(meth)):
-
-      if meth[i] in ['z', 'Z']:
-
-        # location is C of 'CG' on the forward strand
-        loc = pos + i - rc + offset
-
-        # for "novel" CpG sites created by a deletion,
-        #   adjust location to the 5' end of the 'D's
-        if rc and cigar[cigPos-1] == 'D':
-          j = cigPos - 1
-          while j > -1 and cigar[j] != 'M':
-            j -= 1
-          loc -= cigPos - j - 1
-
-        # for "novel" CpG sites created by an insertion,
-        #   save to 'ins' dictionary
-        if (not rc and cigar[cigPos] == 'I') or \
-            (rc and cigPos > 0 and cigar[cigPos-1] == 'I'):
-          if (chrom, loc) not in ins:
-            ins[(chrom, loc)] = [0, 0]
-          if meth[i] == 'z':
-            ins[(chrom, loc)][1] += 1
-          else:
-            ins[(chrom, loc)][0] += 1
-
-        else:
-
-          # save methylation data
-          if loc not in d[chrom]:
-            d[chrom][loc] = [0, 0]
-          if meth[i] == 'z':
-            d[chrom][loc][1] += 1
-          else:
-            d[chrom][loc][0] += 1
-
-      # change in/del offset
-      cigPos += 1
-      while cigPos < len(cigar) and cigar[cigPos] == 'D':
-        offset += 1
-        cigPos += 1
-      if cigPos < len(cigar) and cigar[cigPos] == 'I':
-        offset -= 1
-
-    count += 1
+    loadMeth(cigar, strXM, chrom, pos, rc, meth, ins)
 
   # warn about novel inserted CpGs
   if ins:
     sys.stderr.write('Warning! Novel CpG(s) caused by ' + \
       'insertion(s) -- will be ignored.\n')
 
-  return genome, count
+  return genome, total, mapped
 
 def main():
   '''
@@ -186,24 +204,24 @@ def main():
   fOut = openWrite(args[1])
 
   # process file
-  d = {}
-  genome, count = parseSAM(f, d)
+  meth = {}  # dict for methylation counts
+  genome, total, mapped = parseSAM(f, meth)
   if f != sys.stdin:
     f.close()
 
   # print output
   for chrom in genome:
-    for loc in sorted(d[chrom]):
+    for loc in sorted(meth[chrom]):
       #fOut.write('%s\t%d\t%d\t+\t%d\t%d\n' % (chrom, loc, loc+1, \
-      #  d[chrom][loc][0], d[chrom][loc][1]))
+      #  meth[chrom][loc][0], meth[chrom][loc][1]))
       fOut.write('%s\t%d\t%d\t%.6f\t%d\t%d\n' % (chrom, loc, loc+1, \
-        100.0 * d[chrom][loc][0] / ( d[chrom][loc][0] + d[chrom][loc][1] ), \
-        d[chrom][loc][0], d[chrom][loc][1]))
+        100.0*meth[chrom][loc][0] / (meth[chrom][loc][0]+meth[chrom][loc][1]), \
+        meth[chrom][loc][0], meth[chrom][loc][1]))
   if fOut != sys.stdout:
     fOut.close()
 
-  sys.stderr.write('Reads analyzed: %d\n' % count)
-  #sys.stderr.write('Reads written to %s: %d\n' % (args[1], total))
+  sys.stderr.write('Reads analyzed: %d\n' % total)
+  sys.stderr.write('  Mapped: %d\n' % mapped)
 
 if __name__ == '__main__':
   main()
