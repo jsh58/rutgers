@@ -35,8 +35,8 @@ def openFile(fname):
   try:
     f = open(fname, 'rU')
   except IOError:
-    print 'Error! Cannot open', fname
-    usage()
+    sys.stderr.write('Error! Cannot open %s for reading\n' % fname)
+    sys.exit(-1)
   return f
 
 def getInt(arg):
@@ -46,8 +46,8 @@ def getInt(arg):
   try:
     val = int(arg)
   except ValueError:
-    print 'Error! Cannot convert %s to int' % arg
-    usage()
+    sys.stderr.write('Error! Cannot convert %s to int\n' % arg)
+    sys.exit(-1)
   return val
 
 def getFloat(arg):
@@ -57,11 +57,11 @@ def getFloat(arg):
   try:
     val = float(arg)
   except ValueError:
-    print 'Error! Cannot convert %s to int' % arg
-    usage()
+    sys.stderr.write('Error! Cannot convert %s to float\n' % arg)
+    sys.exit(-1)
   if val > 1 or val < 0:
-    print 'Error! Value %s is not in [0,1]' % arg
-    usage()
+    sys.stderr.write('Error! Value %s is not in [0,1]\n' % arg)
+    sys.exit(-1)
   return val
 
 def getSample(csv):
@@ -100,7 +100,7 @@ def saveIndexes(fIn, samples):
 
   for i in range(len(idxs)):
     if len(idxs[i]) != len(samples[i]):
-      print 'Error! Cannot find all sample names in input file'
+      sys.stderr.write('Error! Cannot find all sample names in input file\n')
       sys.exit(-1)
 
   # construct header for output file
@@ -125,7 +125,7 @@ def calcAvg(spl, idxs):
     try:
       avg += float(spl[idx])
     except ValueError:
-      print 'Error! Poorly formatted record:\n', line
+      sys.stderr.write('Error! Poorly formatted record:\n%s' % line)
     sample += 1
   if sample:
     avg /= sample
@@ -137,7 +137,7 @@ def processLine(line, cpg, idxs, idxExtra):
   '''
   spl = line.split('\t')
   if len(spl) < max([max(idx) for idx in idxs]):
-    print 'Error! Poorly formatted record:\n', line
+    sys.stderr.write('Error! Poorly formatted record:\n%s' % line)
   if int(spl[3]) < cpg:
     return [], 0  # fewer than min. CpGs
 
@@ -228,10 +228,10 @@ def main():
 
   # check for errors
   if fIn == None or fOut == None:
-    print 'Error! Must specify input and output files'
+    sys.stderr.write('Error! Must specify input and output files\n')
     usage()
   if len(samples) < 2:
-    print 'Error! Must have at least two sets of samples'
+    sys.stderr.write('Error! Must have at least two sets of samples\n')
     usage()
 
   # save indexes of samples from header

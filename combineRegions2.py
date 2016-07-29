@@ -24,6 +24,19 @@ def usage():
       -v          Run in verbose mode                                            "
   sys.exit(-1)
 
+def openRead(filename):
+  '''
+  Open filename for reading. '-' indicates stdin.
+  '''
+  if filename == '-':
+    return sys.stdin
+  try:
+    f = open(filename, 'rU')
+  except IOError:
+    sys.stderr.write('Error! Cannot open %s for reading\n' % filename)
+    sys.exit(-1)
+  return f
+
 def getInt(arg):
   '''
   Convert given argument to int.
@@ -31,8 +44,8 @@ def getInt(arg):
   try:
     val = int(arg)
   except ValueError:
-    print 'Error! Cannot convert %s to int' % arg
-    usage()
+    sys.stderr.write('Error! Cannot convert %s to int\n' % arg)
+    sys.exit(-1)
   return val
 
 def valChr(k):
@@ -97,11 +110,7 @@ def processFile(fname, minReads, d, tot, samples):
   '''
   Load the methylation/unmethylation counts for a file.
   '''
-  try:
-    f = open(fname, 'rU')
-  except IOError:
-    print 'Error! Cannot open', fname
-    usage()
+  f = openRead(fname)
 
   # save sample name
   sample = fname.split('.')[0]
@@ -115,8 +124,8 @@ def processFile(fname, minReads, d, tot, samples):
       chr, pos, end, pct, meth, unmeth = \
         line.rstrip().split('\t')
     except ValueError:
-      print 'Error! Poorly formatted cov record in %s:\n' \
-        % fname, line
+      sys.stderr.write('Error! Poorly formatted cov record in %s:\n%s' \
+        % fname, line)
       sys.exit(-1)
     meth = getInt(meth)
     unmeth = getInt(unmeth)
@@ -171,7 +180,7 @@ def main():
       elif args[i] == '-h':
         usage()
       else:
-        print 'Error! Unknown argument:', args[i]
+        sys.stderr.write('Error! Unknown argument: %s\n' % args[i])
         usage()
       i += 1
     else:
@@ -180,10 +189,10 @@ def main():
 
   # check for I/O errors
   if fOut == None:
-    print 'Error! Must supply an output file'
+    sys.stderr.write('Error! Must supply an output file\n')
     usage()
   if len(fIn) == 0:
-    print 'Error! Must supply one or more input files'
+    sys.stderr.write('Error! Must supply one or more input files\n')
     usage()
 
   # load methylation information for each sample
