@@ -8,16 +8,16 @@ import sys
 import re
 
 def usage():
-  print "Usage: python SAMtoCOV.py  <SAM>  <OUT>                \n\
-                                                                \n\
-    <SAM>   SAM alignment file produced by Bismark --           \n\
-              can use '-' for stdin, but must specify '-h'      \n\
-              with samtools view, e.g.:                         \n\
-            samtools view -h <BAM> | python SAMtoCOV.py - <OUT> \n\
-                                                                \n\
-    <OUT>   Output file listing counts of methylated and        \n\
-              unmethylated CpGs (similar to that produced by    \n\
-              Bismark's coverage2cytosine with --merge_CpG)      "
+  print "Usage: python SAMtoCOV.py  <SAM>  <OUT>                 \n\
+                                                                 \n\
+    <SAM>   SAM alignment file produced by Bismark.              \n\
+              Can use '-' for stdin, but must specify '-h'       \n\
+              with samtools view, e.g.:                          \n\
+            samtools view -h <BAM> | python SAMtoCOV.py - <OUT>  \n\
+                                                                 \n\
+    <OUT>   Output file listing counts of methylated and         \n\
+              unmethylated CpGs (similar to that produced by     \n\
+              Bismark's coverage2cytosine with --merge_CpG)       "
   sys.exit(-1)
 
 def getInt(arg):
@@ -101,6 +101,7 @@ def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins):
   '''
   Load methylation info using a methylation string (strXM).
   '''
+  methCount = count = 0  # counting variables
   offset = 0  # in/del offset
   cigPos = 0  # position in cigar -- mirrors i (position in meth)
   for i in range(len(strXM)):
@@ -129,6 +130,11 @@ def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins):
       else:
         saveMeth(meth, chrom, loc, strXM[i])
 
+      # update counts
+      if strXM[i] == 'Z':
+        methCount += 1
+      count += 1
+
     # change in/del offset
     cigPos += 1
     while cigPos < len(cigar) and cigar[cigPos] == 'D':
@@ -137,13 +143,16 @@ def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins):
     if cigPos < len(cigar) and cigar[cigPos] == 'I':
       offset -= 1
 
+  return methCount, count
+
 def parseSAM(f, meth):
   '''
   Parse the SAM file. Save methylation data.
   '''
   genome = []  # for chromosome names, ordered in SAM header
   ins = {}     # for novel CpGs caused by insertion
-  total = mapped = 0  # counting variables
+  total = mapped = 0     # counting variables for reads
+  methCount = count = 0  # counting variables for methylation data
   for line in f:
 
     # save chromosome names
@@ -182,14 +191,16 @@ def parseSAM(f, meth):
     strXM = getTag(spl[11:], 'XM')  # methylation string from Bismark
 
     # check methylation string for CpG sites
-    loadMeth(cigar, strXM, chrom, pos, rc, meth, ins)
+    count1, count2 = loadMeth(cigar, strXM, chrom, pos, rc, meth, ins)
+    methCount += count1
+    count += count2
 
   # warn about novel inserted CpGs
   if ins:
     sys.stderr.write('Warning! Novel CpG(s) caused by ' + \
       'insertion(s) -- will be ignored.\n')
 
-  return genome, total, mapped
+  return genome, total, mapped, methCount, count
 
 def main():
   '''
@@ -205,7 +216,7 @@ def main():
 
   # process file
   meth = {}  # dict for methylation counts
-  genome, total, mapped = parseSAM(f, meth)
+  genome, total, mapped, methCount, count = parseSAM(f, meth)
   if f != sys.stdin:
     f.close()
 
@@ -222,6 +233,10 @@ def main():
 
   sys.stderr.write('Reads analyzed: %d\n' % total)
   sys.stderr.write('  Mapped: %d\n' % mapped)
+  sys.stderr.write('Total CpGs analyzed: %d\n' % count)
+  if count:
+    sys.stderr.write('  Percent methylated: %.1f%%\n' % \
+      (100.0 * methCount / count))
 
 if __name__ == '__main__':
   main()
