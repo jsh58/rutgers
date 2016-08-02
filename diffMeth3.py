@@ -125,7 +125,10 @@ def calcAvg(spl, idxs):
   for idx in idxs:
     if spl[idx] == 'NA':
       continue
-    avg += getFloat(spl[idx])
+    div = spl[idx].split('-')
+    meth = getInt(div[0])
+    unmeth = getFloat(div[1])
+    avg += meth / (meth + unmeth)
     sample += 1
   if sample:
     avg /= sample

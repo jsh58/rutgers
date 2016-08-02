@@ -23,11 +23,11 @@ def getFloat(arg, minVal = None, maxVal = None):
   try:
     val = float(arg)
   except ValueError:
-    sys.stderr.write('Error! Cannot convert %s to float' % arg)
+    sys.stderr.write('Error! Cannot convert %s to float\n' % arg)
     sys.exit(-1)
   if (minVal != None and val < minVal) or \
       (maxVal != None and val > maxVal):
-    sys.stderr.write('Error! Value %f is outside of range [%f,%f]' \
+    sys.stderr.write('Error! Value %f is outside of range [%f,%f]\n' \
       % (val, minVal, maxVal))
     sys.exit(-1)
   return val

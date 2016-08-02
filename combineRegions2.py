@@ -124,8 +124,8 @@ def processFile(fname, minReads, d, tot, samples):
       chr, pos, end, pct, meth, unmeth = \
         line.rstrip().split('\t')
     except ValueError:
-      sys.stderr.write('Error! Poorly formatted cov record in %s:\n%s' \
-        % fname, line)
+      sys.stderr.write('Error! Poorly formatted record' + \
+        ' in %s:\n%s' % (fname, line))
       sys.exit(-1)
     meth = getInt(meth)
     unmeth = getInt(unmeth)
