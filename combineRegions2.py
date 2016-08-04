@@ -4,6 +4,7 @@
 # Combining regions for a set of bismark cov files.
 
 import sys
+import gzip
 
 def usage():
   print "Usage: python combineRegions2.py  [options]  -o <outfile>  <infile(s)> \n\
@@ -27,13 +28,30 @@ def usage():
 def openRead(filename):
   '''
   Open filename for reading. '-' indicates stdin.
+    '.gz' suffix indicates gzip compression.
   '''
   if filename == '-':
     return sys.stdin
   try:
-    f = open(filename, 'rU')
+    if filename[-3:] == '.gz':
+      f = gzip.open(filename, 'rb')
+    else:
+      f = open(filename, 'rU')
   except IOError:
     sys.stderr.write('Error! Cannot open %s for reading\n' % filename)
+    sys.exit(-1)
+  return f
+
+def openWrite(filename):
+  '''
+  Open filename for writing. '-' indicates stdout.
+  '''
+  if filename == '-':
+    return sys.stdout
+  try:
+    f = open(filename, 'w')
+  except IOError:
+    sys.stderr.write('Error! Cannot open %s for writing\n' % filename)
     sys.exit(-1)
   return f
 
@@ -60,7 +78,8 @@ def valChr(k):
     return 21
   return int(k[3:])
 
-def processRegion(chr, reg, d, minCpG, minReg, samples, fOut):
+def processRegion(chrom, reg, count, minCpG, minReg, \
+    samples, fOut):
   '''
   Produce output for a given region of CpGs.
   '''
@@ -68,14 +87,14 @@ def processRegion(chr, reg, d, minCpG, minReg, samples, fOut):
     return
 
   flag = 0  # boolean for printing line
-  res = '%s\t%d\t%d\t%d' % (chr, reg[0], reg[-1], len(reg))
+  res = '%s\t%d\t%d\t%d' % (chrom, reg[0], reg[-1], len(reg))
   for sample in samples:
     meth = unmeth = 0
     for r in reg:
       pos = str(r)
-      if sample in d[chr][pos]:
-        meth += d[chr][pos][sample][0]
-        unmeth += d[chr][pos][sample][1]
+      if sample in count[chrom][pos]:
+        meth += count[chrom][pos][sample][0]
+        unmeth += count[chrom][pos][sample][1]
     if meth + unmeth < minReg:
       res += '\tNA'
     else:
@@ -84,29 +103,29 @@ def processRegion(chr, reg, d, minCpG, minReg, samples, fOut):
   if flag:
     fOut.write(res + '\n')
 
-def combineRegions(d, tot, minSamples, maxDist, minCpG, \
+def combineRegions(count, total, minSamples, maxDist, minCpG, \
     minReg, samples, fOut):
   '''
   Combine data from CpG positions that are close to each
     other. Process combined regions on the fly.
   '''
-  for chr in sorted(tot, key=valChr):
+  for chrom in sorted(total, key=valChr):
     reg = []  # for saving connected positions
     pos3 = 0
-    for pos in sorted(tot[chr], key=int):
+    for pos in sorted(total[chrom], key=int):
       # require a min. number of samples
-      if tot[chr][pos] >= minSamples:
+      if total[chrom][pos] >= minSamples:
         loc = int(pos)
         if pos3 and loc - pos3 > maxDist:
-          processRegion(chr, reg, d, minCpG, minReg, \
+          processRegion(chrom, reg, count, minCpG, minReg, \
             samples, fOut)
           reg = []  # reset list
         reg.append(loc)
         pos3 = loc
-    processRegion(chr, reg, d, minCpG, minReg, samples, \
-      fOut)
+    processRegion(chrom, reg, count, minCpG, minReg, \
+      samples, fOut)
 
-def processFile(fname, minReads, d, tot, samples):
+def processFile(fname, minReads, count, total, samples):
   '''
   Load the methylation/unmethylation counts for a file.
   '''
@@ -121,24 +140,24 @@ def processFile(fname, minReads, d, tot, samples):
   # load counts from file
   for line in f:
     try:
-      chr, pos, end, pct, meth, unmeth = \
-        line.rstrip().split('\t')
+      chrom, pos, end, strand, meth, unmeth \
+        = line.rstrip().split('\t')
     except ValueError:
-      sys.stderr.write('Error! Poorly formatted record' + \
-        ' in %s:\n%s' % (fname, line))
+      sys.stderr.write('Error! Poorly formatted record' \
+        + ' in %s:\n%s' % (fname, line))
       sys.exit(-1)
     meth = getInt(meth)
     unmeth = getInt(unmeth)
 
     # save counts and total
-    if not chr in d:
-      d[chr] = {}
-      tot[chr] = {}
-    if not pos in d[chr]:
-      d[chr][pos] = {}
-    d[chr][pos][sample] = [meth, unmeth]
+    if not chrom in count:
+      count[chrom] = {}
+      total[chrom] = {}
+    if not pos in count[chrom]:
+      count[chrom][pos] = {}
+    count[chrom][pos][sample] = [meth, unmeth]
     if meth + unmeth >= minReads:
-      tot[chr][pos] = tot[chr].get(pos, 0) + 1
+      total[chrom][pos] = total[chrom].get(pos, 0) + 1
 
   f.close()
 
@@ -173,7 +192,7 @@ def main():
       elif args[i] == '-m':
         minReg = getInt(args[i+1])
       elif args[i] == '-o':
-        fOut = open(args[i+1], 'w')
+        fOut = openWrite(args[i+1])
       elif args[i] == '-v':
         verbose = 1
         i -= 1
@@ -198,22 +217,23 @@ def main():
   # load methylation information for each sample
   if verbose:
     print 'Loading methylation information'
-  d = {}    # for methylated, unmethylated counts
-  tot = {}  # for number of samples with min. coverage
+  count = {}    # for methylated, unmethylated counts
+  total = {}    # for number of samples with min. coverage
   samples = []  # list of sample names
   for fname in fIn:
     if verbose:
       print '  file: ' + fname
-    processFile(fname, minReads, d, tot, samples)
+    processFile(fname, minReads, count, total, samples)
 
   # produce output
   if verbose:
     print 'Combining regions and producing output'
-  fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] + \
-    samples) + '\n')
-  combineRegions(d, tot, minSamples, maxDist, minCpG, \
+  fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] \
+    + samples) + '\n')
+  combineRegions(count, total, minSamples, maxDist, minCpG, \
     minReg, samples, fOut)
-  fOut.close()
+  if fOut != sys.stdout:
+    fOut.close()
 
 if __name__ == '__main__':
   main()

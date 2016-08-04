@@ -4,6 +4,7 @@
 # Wrappers for various functions.
 
 #import sys
+#import gzip
 
 def getInt(arg):
   '''
@@ -35,11 +36,15 @@ def getFloat(arg, minVal = None, maxVal = None):
 def openRead(filename):
   '''
   Open filename for reading. '-' indicates stdin.
+    '.gz' suffix indicates gzip compression.
   '''
   if filename == '-':
     return sys.stdin
   try:
-    f = open(filename, 'rU')
+    if filename[-3:] == '.gz':
+      f = gzip.open(filename, 'rb')
+    else:
+      f = open(filename, 'rU')
   except IOError:
     sys.stderr.write('Error! Cannot open %s for reading\n' % filename)
     sys.exit(-1)
@@ -48,11 +53,15 @@ def openRead(filename):
 def openWrite(filename):
   '''
   Open filename for writing. '-' indicates stdout.
+    '.gz' suffix indicates gzip compression.
   '''
   if filename == '-':
     return sys.stdout
   try:
-    f = open(filename, 'w')
+    if filename[-3:] == '.gz':
+      f = gzip.open(filename, 'wb')
+    else:
+      f = open(filename, 'w')
   except IOError:
     sys.stderr.write('Error! Cannot open %s for writing\n' % filename)
     sys.exit(-1)
