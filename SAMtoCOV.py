@@ -6,6 +6,7 @@
 
 import sys
 import re
+import gzip
 
 def usage():
   print "Usage: python SAMtoCOV.py  <SAM>  <OUT>                 \n\
@@ -34,11 +35,15 @@ def getInt(arg):
 def openRead(filename):
   '''
   Open filename for reading. '-' indicates stdin.
+    '.gz' suffix indicates gzip compression.
   '''
   if filename == '-':
     return sys.stdin
   try:
-    f = open(filename, 'rU')
+    if filename[-3:] == '.gz':
+      f = gzip.open(filename, 'rb')
+    else:
+      f = open(filename, 'rU')
   except IOError:
     sys.stderr.write('Error! Cannot open %s for reading\n' % filename)
     sys.exit(-1)
@@ -47,11 +52,15 @@ def openRead(filename):
 def openWrite(filename):
   '''
   Open filename for writing. '-' indicates stdout.
+    '.gz' suffix indicates gzip compression.
   '''
   if filename == '-':
     return sys.stdout
   try:
-    f = open(filename, 'w')
+    if filename[-3:] == '.gz':
+      f = gzip.open(filename, 'wb')
+    else:
+      f = open(filename, 'w')
   except IOError:
     sys.stderr.write('Error! Cannot open %s for writing\n' % filename)
     sys.exit(-1)
@@ -86,7 +95,7 @@ def getTag(lis, tag):
 def saveMeth(d, chrom, loc, meth):
   '''
   Save the methylation info for a given genomic position
-    to the given dict.
+    to the given dict (d).
   '''
   if chrom not in d:
     d[chrom] = {}
@@ -176,13 +185,15 @@ def parseSAM(f, meth):
       continue  # skip unmapped
     mapped += 1
     rc = 0
-    if flag & 0x10:
-      rc = 1  # alignment is to reverse strand
+    #if flag & 0x10:
+    if getTag(spl[11:], 'XG') == 'GA':
+      rc = 1  # alignment is to G->A converted genome
 
     # load chrom, position
     chrom = spl[2]
     if chrom not in meth:
-      sys.stderr.write('Error! Cannot find chromosome %s in genome\n' % chrom)
+      sys.stderr.write('Error! Cannot find chromosome ' \
+        + '%s in genome\n' % chrom)
       sys.exit(-1)
     pos = getInt(spl[3])
 
@@ -197,8 +208,8 @@ def parseSAM(f, meth):
 
   # warn about novel inserted CpGs
   if ins:
-    sys.stderr.write('Warning! Novel CpG(s) caused by ' + \
-      'insertion(s) -- will be ignored.\n')
+    sys.stderr.write('Warning! Novel CpG(s) caused by ' \
+      + 'insertion(s) -- will be ignored.\n')
 
   return genome, total, mapped, methCount, count
 
@@ -231,6 +242,7 @@ def main():
   if fOut != sys.stdout:
     fOut.close()
 
+  # print summary counts
   sys.stderr.write('Reads analyzed: %d\n' % total)
   sys.stderr.write('  Mapped: %d\n' % mapped)
   sys.stderr.write('Total CpGs analyzed: %d\n' % count)
