@@ -15,17 +15,17 @@ except ImportError:
   scip = 1
 
 def usage():
-  print "Usage: python diffMeth3.py  [options]  -i <input>  -o <output> \ \n\
-          <groupList1>  <groupList2>  [...]                               \n\
-    <groupList> Comma-separated list of sample names (as found in         \n\
-                  the header of <input>)                                  \n\
-    <input>     File listing genomic regions and methylation results      \n\
-                  (output from combineRegions2.py)                        \n\
-  Options (whether or not to report a region):                            \n\
-    -c <int>    Minimum number of CpGs in a region (def. 1)               \n\
-    -d <float>  Minimum methylation difference between sample groups      \n\
-                  ([0-1]; def. 0 [all results reported])                  \n\
-    -p <float>  Maximum p-value ([0-1]; def. 1 [all results reported])     "
+  print "Usage: python diffMeth3.py  [options]  -i <input>  -o <output> \  \n\
+          <groupList1>  <groupList2>  [...]                                \n\
+    <groupList>  Comma-separated list of sample names (as found in         \n\
+                   the header of <input>)                                  \n\
+    <input>      File listing genomic regions and methylation results      \n\
+                   (output from combineRegions2.py)                        \n\
+  Options (whether or not to report a region):                             \n\
+    -c <int>     Minimum number of CpGs in a region (def. 1)               \n\
+    -d <float>   Minimum methylation difference between sample groups      \n\
+                   ([0-1]; def. 0 [all results reported])                  \n\
+    -p <float>   Maximum p-value ([0-1]; def. 1 [all results reported])     "
   sys.exit(-1)
 
 def openFile(fname):

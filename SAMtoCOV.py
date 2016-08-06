@@ -106,7 +106,7 @@ def saveMeth(d, chrom, loc, meth):
   else:
     d[chrom][loc][0] += 1  # methylated: index 0
 
-def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins):
+def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins, dup, peMeth):
   '''
   Load methylation info using a methylation string (strXM).
   '''
@@ -116,9 +116,9 @@ def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins):
   for i in range(len(strXM)):
 
     # CpG methylation calls are 'z' (unmethylated) or 'Z' (methylated)
-    if strXM[i] in ['z', 'Z']:
+    while strXM[i] in ['z', 'Z']:
 
-      # location is C of 'CG' on the forward strand
+      # determine genomic location (C of 'CG' on the forward strand)
       loc = pos + i - rc + offset
 
       # for "novel" CpG sites created by a deletion,
@@ -128,6 +128,10 @@ def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins):
         while j > -1 and cigar[j] != 'M':
           j -= 1
         loc -= cigPos - j - 1
+
+      # skip if position has been counted in a previous alignment
+      if dup == 2 and chrom in peMeth and loc in peMeth[chrom]:
+        break
 
       # for "novel" CpG sites created by an insertion,
       #   save to 'ins' dictionary
@@ -139,10 +143,15 @@ def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins):
       else:
         saveMeth(meth, chrom, loc, strXM[i])
 
+      # if p-e alignment, also save to 'peMeth' dict
+      if dup == 1:
+        saveMeth(peMeth, chrom, loc, strXM[i])
+
       # update counts
       if strXM[i] == 'Z':
         methCount += 1
       count += 1
+      break
 
     # change in/del offset
     cigPos += 1
@@ -160,6 +169,7 @@ def parseSAM(f, meth):
   '''
   genome = []  # for chromosome names, ordered in SAM header
   ins = {}     # for novel CpGs caused by insertion
+  peMeth = {}  # for checking overlapping of paired-end alignments
   total = mapped = 0     # counting variables for reads
   methCount = count = 0  # counting variables for methylation data
   for line in f:
@@ -185,9 +195,19 @@ def parseSAM(f, meth):
       continue  # skip unmapped
     mapped += 1
     rc = 0
-    #if flag & 0x10:
     if getTag(spl[11:], 'XG') == 'GA':
-      rc = 1  # alignment is to G->A converted genome
+      rc = 1  # alignment is to G->A converted genome,
+              #   so methylation data is on G of 'CG'
+
+    # determine if read has multiple segments
+    dup = 0  # 0 -> single-end alignment
+    if flag & 0x1:
+      if spl[0] in peMeth:
+        dup = 2  # read seen before
+      else:
+        # first segment -- initialize dict
+        peMeth[spl[0]] = {}
+        dup = 1
 
     # load chrom, position
     chrom = spl[2]
@@ -201,8 +221,9 @@ def parseSAM(f, meth):
     offset, cigar = parseCigar(spl[5])
     strXM = getTag(spl[11:], 'XM')  # methylation string from Bismark
 
-    # check methylation string for CpG sites
-    count1, count2 = loadMeth(cigar, strXM, chrom, pos, rc, meth, ins)
+    # load CpG methylation info
+    count1, count2 = loadMeth(cigar, strXM, chrom, pos, rc, meth, \
+      ins, dup, peMeth.get(spl[0], None))
     methCount += count1
     count += count2
 
