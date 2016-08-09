@@ -84,12 +84,13 @@ def processRegion(chrom, reg, count, minCpG, minReg, \
   Produce output for a given region of CpGs.
   '''
   if len(reg) < minCpG:
-    return
+    return 0
 
   flag = 0  # boolean for printing line
   res = '%s\t%d\t%d\t%d' % (chrom, reg[0], reg[-1], len(reg))
   for sample in samples:
     meth = unmeth = 0
+    # sum methylated/unmeth bases at each position in region
     for r in reg:
       pos = str(r)
       if sample in count[chrom][pos]:
@@ -98,10 +99,13 @@ def processRegion(chrom, reg, count, minCpG, minReg, \
     if meth + unmeth < minReg:
       res += '\tNA'
     else:
+      # compute methylated fraction
       res += '\t%f' % (meth / float(meth+unmeth))
       flag = 1
   if flag:
     fOut.write(res + '\n')
+    return 1
+  return 0
 
 def combineRegions(count, total, minSamples, maxDist, minCpG, \
     minReg, samples, fOut):
@@ -109,6 +113,7 @@ def combineRegions(count, total, minSamples, maxDist, minCpG, \
   Combine data from CpG positions that are close to each
     other. Process combined regions on the fly.
   '''
+  printed = 0  # count of printed regions
   for chrom in sorted(total, key=valChr):
     reg = []  # for saving connected positions
     pos3 = 0
@@ -116,14 +121,18 @@ def combineRegions(count, total, minSamples, maxDist, minCpG, \
       # require a min. number of samples
       if total[chrom][pos] >= minSamples:
         loc = int(pos)
+        # if next position is more than maxDist away,
+        #   process previous genomic region
         if pos3 and loc - pos3 > maxDist:
-          processRegion(chrom, reg, count, minCpG, minReg, \
-            samples, fOut)
+          printed += processRegion(chrom, reg, count, \
+            minCpG, minReg, samples, fOut)
           reg = []  # reset list
         reg.append(loc)
         pos3 = loc
-    processRegion(chrom, reg, count, minCpG, minReg, \
-      samples, fOut)
+    # process last genomic region
+    printed += processRegion(chrom, reg, count, minCpG, \
+      minReg, samples, fOut)
+  return printed
 
 def processFile(fname, minReads, count, total, samples):
   '''
@@ -132,7 +141,7 @@ def processFile(fname, minReads, count, total, samples):
   f = openRead(fname)
 
   # save sample name
-  sample = fname.split('.')[0]
+  sample = fname.split('/')[-1].split('.')[0]
   while sample in samples:
     sample += '-'
   samples.append(sample)
@@ -156,6 +165,7 @@ def processFile(fname, minReads, count, total, samples):
     if not pos in count[chrom]:
       count[chrom][pos] = {}
     count[chrom][pos][sample] = [meth, unmeth]
+    # save to 'total' dict. only if sufficient coverage
     if meth + unmeth >= minReads:
       total[chrom][pos] = total[chrom].get(pos, 0) + 1
 
@@ -216,22 +226,24 @@ def main():
 
   # load methylation information for each sample
   if verbose:
-    print 'Loading methylation information'
+    sys.stderr.write('Loading methylation information\n')
   count = {}    # for methylated, unmethylated counts
   total = {}    # for number of samples with min. coverage
   samples = []  # list of sample names
   for fname in fIn:
     if verbose:
-      print '  file: ' + fname
+      sys.stderr.write('  file: %s\n' % fname)
     processFile(fname, minReads, count, total, samples)
 
   # produce output
   if verbose:
-    print 'Combining regions and producing output'
+    sys.stderr.write('Combining regions and producing output\n')
   fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] \
     + samples) + '\n')
-  combineRegions(count, total, minSamples, maxDist, minCpG, \
-    minReg, samples, fOut)
+  printed = combineRegions(count, total, minSamples, maxDist, \
+    minCpG, minReg, samples, fOut)
+  if verbose:
+    sys.stderr.write('Regions printed: %d\n' % printed)
   if fOut != sys.stdout:
     fOut.close()
 
