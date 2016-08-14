@@ -9,16 +9,26 @@ import re
 import gzip
 
 def usage():
-  print "Usage: python SAMtoCOV.py  <SAM>  <OUT>                 \n\
-                                                                 \n\
-    <SAM>   SAM alignment file produced by Bismark.              \n\
-              Can use '-' for stdin, but must specify '-h'       \n\
-              with samtools view, e.g.:                          \n\
-            samtools view -h <BAM> | python SAMtoCOV.py - <OUT>  \n\
-                                                                 \n\
-    <OUT>   Output file listing counts of methylated and         \n\
-              unmethylated CpGs (similar to that produced by     \n\
-              Bismark's coverage2cytosine with --merge_CpG)       "
+  print "Usage: python SAMtoCOV.py  -i <SAM>  -o <OUT>  [options]        \n\
+    -i <SAM>  SAM alignment file produced by Bismark.                    \n\
+                Can use '-' for stdin, but must specify '-h'             \n\
+                with samtools view, e.g.:                                \n\
+              samtools view -h <BAM> | python SAMtoCOV.py -i - -o <OUT>  \n\
+    -o <OUT>  Output file listing counts of methylated and               \n\
+                unmethylated CpGs, merged and sorted.                    \n\
+              Each line of the output lists the following six            \n\
+                values for a single genomic CpG, tab-delimited:          \n\
+              <chrom>          the chromosome name;                      \n\
+              <start>,<end>    the 1-based position of the 'C' in        \n\
+                                 the CpG;                                \n\
+              <strand>         '+' (invariable for this merged file);    \n\
+              <meth>,<unmeth>  Counts of methylated and unmethylated     \n\
+                                 bases.                                  \n\
+  Options:                                                               \n\
+    -m <int>  Minimum coverage (methylation counts) to report a CpG      \n\
+                (def. 1 [all sites reported])                            \n\
+    -pct      Replace <strand> with methylation percent in the           \n\
+                output file (fourth column)                               "
   sys.exit(-1)
 
 def getInt(arg):
@@ -66,6 +76,29 @@ def openWrite(filename):
     sys.exit(-1)
   return f
 
+def printOutput(fOut, genome, meth, minCov, pct):
+  '''
+  Print the sorted output -- location and methylation counts
+    for each CpG with at least minCov data values.
+  '''
+  printed = 0
+  for chrom in genome:
+    for loc in sorted(meth[chrom]):
+      total = meth[chrom][loc][0] + meth[chrom][loc][1]
+      if total < minCov:
+        continue  # fails to meet minimum coverage
+      if pct:
+        # 4th column is percent methylated
+        fOut.write('%s\t%d\t%d\t%.6f\t%d\t%d\n' % (chrom, loc, loc+1,
+          100.0 * meth[chrom][loc][0] / total,
+          meth[chrom][loc][0], meth[chrom][loc][1]))
+      else:
+        # 4th column is strand ('+')
+        fOut.write('%s\t%d\t%d\t+\t%d\t%d\n' % (chrom, loc, loc+1,
+          meth[chrom][loc][0], meth[chrom][loc][1]))
+      printed += 1
+  return printed
+
 def parseCigar(cigar):
   '''
   Return in/del offset, plus string representation of cigar.
@@ -89,7 +122,7 @@ def getTag(lis, tag):
     spl = t.split(':')
     if spl[0] == tag:
       return spl[-1]
-  sys.stderr.write('Error! Cannot find ' + tag + ' in SAM record\n')
+  sys.stderr.write('Error! Cannot find %s in SAM record\n' % tag)
   sys.exit(-1)
 
 def saveMeth(d, chrom, loc, meth):
@@ -138,7 +171,6 @@ def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins, dup, peMeth):
       if (not rc and cigar[cigPos] == 'I') or \
           (rc and cigPos > 0 and cigar[cigPos-1] == 'I'):
         saveMeth(ins, chrom, loc, strXM[i])
-
       # otherwise, save to regular 'meth' dict
       else:
         saveMeth(meth, chrom, loc, strXM[i])
@@ -238,28 +270,49 @@ def main():
   '''
   Main.
   '''
-  args = sys.argv[1:]
-  if len(args) < 2:
-    usage()
+  # Default parameters
+  minCov = 1   # min. coverage to report a CpG site
+  pct = 0      # report methylation percents in output
+  fIn = None
+  fOut = None
 
-  # open files
-  f = openRead(args[0])
-  fOut = openWrite(args[1])
+  # get command-line args
+  args = sys.argv[1:]
+  if len(args) < 4: usage()
+  i = 0
+  while i < len(args):
+    if args[i] == '-i':
+      fIn = openRead(args[i+1])
+    elif args[i] == '-o':
+      fOut = openWrite(args[i+1])
+    elif args[i] == '-m':
+      minCov = getInt(args[i+1])
+    elif args[i] == '-pct':
+      pct = 1
+    elif args[i] == '-h':
+      usage()
+    else:
+      sys.stderr.write('Error! Unknown parameter: %s\n' % args[i])
+      usage()
+
+    if len(args[i]) == 2:
+      i += 2
+    else:
+      i += 1
+
+  # check for errors
+  if fIn == None or fOut == None:
+    sys.stderr.write('Error! Must specify input and output files\n')
+    usage()
 
   # process file
   meth = {}  # dict for methylation counts
-  genome, total, mapped, methCount, count = parseSAM(f, meth)
-  if f != sys.stdin:
-    f.close()
+  genome, total, mapped, methCount, count = parseSAM(fIn, meth)
+  if fIn != sys.stdin:
+    fIn.close()
 
   # print output
-  for chrom in genome:
-    for loc in sorted(meth[chrom]):
-      #fOut.write('%s\t%d\t%d\t+\t%d\t%d\n' % (chrom, loc, loc+1, \
-      #  meth[chrom][loc][0], meth[chrom][loc][1]))
-      fOut.write('%s\t%d\t%d\t%.6f\t%d\t%d\n' % (chrom, loc, loc+1, \
-        100.0*meth[chrom][loc][0] / (meth[chrom][loc][0]+meth[chrom][loc][1]), \
-        meth[chrom][loc][0], meth[chrom][loc][1]))
+  printed = printOutput(fOut, genome, meth, minCov, pct)
   if fOut != sys.stdout:
     fOut.close()
 
@@ -270,6 +323,7 @@ def main():
   if count:
     sys.stderr.write('  Percent methylated: %.1f%%\n' % \
       (100.0 * methCount / count))
+  sys.stderr.write('Total CpGs printed: %d\n' % printed)
 
 if __name__ == '__main__':
   main()

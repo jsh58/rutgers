@@ -6,6 +6,7 @@
 # Version 4: using t-test from original diffMeth.py
 
 import sys
+import gzip
 scip = 0  # boolean for scipy import
 try:
   from scipy import stats
