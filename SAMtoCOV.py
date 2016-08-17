@@ -9,26 +9,26 @@ import re
 import gzip
 
 def usage():
-  print "Usage: python SAMtoCOV.py  -i <SAM>  -o <OUT>  [options]        \n\
-    -i <SAM>  SAM alignment file produced by Bismark.                    \n\
-                Can use '-' for stdin, but must specify '-h'             \n\
-                with samtools view, e.g.:                                \n\
-              samtools view -h <BAM> | python SAMtoCOV.py -i - -o <OUT>  \n\
-    -o <OUT>  Output file listing counts of methylated and               \n\
-                unmethylated CpGs, merged and sorted.                    \n\
-              Each line of the output lists the following six            \n\
-                values for a single genomic CpG, tab-delimited:          \n\
-              <chrom>          the chromosome name;                      \n\
-              <start>,<end>    the 1-based position of the 'C' in        \n\
-                                 the CpG;                                \n\
-              <strand>         '+' (invariable for this merged file);    \n\
-              <meth>,<unmeth>  Counts of methylated and unmethylated     \n\
-                                 bases.                                  \n\
-  Options:                                                               \n\
-    -m <int>  Minimum coverage (methylation counts) to report a CpG      \n\
-                (def. 1 [all sites reported])                            \n\
-    -pct      Replace <strand> with methylation percent in the           \n\
-                output file (fourth column)                               "
+  print '''Usage: python SAMtoCOV.py  -i <SAM>  -o <OUT>  [options]
+    -i <SAM>  SAM alignment file produced by Bismark.
+                Can use '-' for stdin, but must specify '-h'
+                with samtools view, e.g.:
+              samtools view -h <BAM> | python SAMtoCOV.py -i - -o <OUT>
+    -o <OUT>  Output file listing counts of methylated and
+                unmethylated CpGs, merged and sorted. Each
+                line of the output lists the following six
+                values for a single genomic CpG, tab-delimited:
+              <chrom>          the chromosome name;
+              <start>,<end>    the 1-based position of the 'C' in
+                                 the CpG;
+              <strand>         '+' (invariable for this merged file);
+              <meth>,<unmeth>  Counts of methylated and unmethylated
+                                 bases.
+  Options:
+    -m <int>  Minimum coverage (methylation counts) to report a CpG
+                (def. 1 [all sites reported])
+    -pct      Replace <strand> with methylation percent in the
+                output file (fourth column)'''
   sys.exit(-1)
 
 def getInt(arg):
