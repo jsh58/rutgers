@@ -154,6 +154,7 @@ def processRegion(chrom, reg, count, minCpG, minReg, \
     else:
       # compute methylated fraction
       res += '\t%f' % (meth / float(meth + unmeth))
+      #res += '\t%d-%d' % (meth, unmeth)  # to save actual counts
       flag = 1
   if flag:
     fOut.write(res + '\n')

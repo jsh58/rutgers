@@ -17,23 +17,23 @@ except ImportError:
   scip = 1
 
 def usage():
-  print "Usage: python diffMeth4.py  [options]  -i <input>  -o <output> \  \n\
-          <groupList1>  <groupList2>  [...]                                \n\
-    <groupList>  Comma-separated list of sample names (as found in         \n\
-                   the header of <input>)                                  \n\
-    <input>      File listing genomic regions and methylation results      \n\
-                   (output from combineRegions2.py)                        \n\
-  Options (whether or not to report a region):                             \n\
-    -c <int>     Minimum number of CpGs in a region (def. 1)               \n\
-    -d <float>   Minimum methylation difference between sample groups      \n\
-                   ([0-1]; def. 0 [all results reported])                  \n\
-    -p <float>   Maximum p-value ([0-1]; def. 1 [all results reported])    \n\
-    -up          Report only regions hypermethylated in later group        \n\
-    -down        Report only regions hypomethylated in later group         \n\
-    -dna         Report regions whose diff is 'NA' (occurs when one        \n\
-                   group has no methylation data)                          \n\
-    -pna         Report regions whose p-value is 'NA' (occurs when one     \n\
-                   group does not have multiple data points)                "
+  print '''Usage: python diffMeth4.py  [options]  -i <input>  -o <output> \\
+          <groupList1>  <groupList2>  [...]
+    <groupList>  Comma-separated list of sample names (as found in
+                   the header of <input>)
+    <input>      File listing genomic regions and methylation results
+                   (output from combineRegions2.py)
+  Options (whether or not to report a region):
+    -c <int>     Minimum number of CpGs in a region (def. 1)
+    -d <float>   Minimum methylation difference between sample groups
+                   ([0-1]; def. 0 [all results reported])
+    -p <float>   Maximum p-value ([0-1]; def. 1 [all results reported])
+    -up          Report only regions hypermethylated in later group
+    -down        Report only regions hypomethylated in later group
+    -dna         Report regions whose diff is 'NA' (occurs when one
+                   group has no methylation data)
+    -pna         Report regions whose p-value is 'NA' (occurs when one
+                   group does not have multiple data points)'''
   sys.exit(-1)
 
 def openRead(filename):
