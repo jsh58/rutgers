@@ -73,18 +73,6 @@ def getInt(arg):
     sys.exit(-1)
   return val
 
-def valChr(k):
-  '''
-  For sorting chromosomes.
-  '''
-  if k == 'chrM':
-    return 0
-  elif k == 'chrX':
-    return 98
-  elif k == 'chrY':
-    return 99
-  return getInt(k[3:])
-
 def splitRegion(chrom, reg, count, minCpG, minReg, \
     maxLen, samples, fOut):
   '''
@@ -161,15 +149,15 @@ def processRegion(chrom, reg, count, minCpG, minReg, \
     return 1
   return 0
 
-def combineRegions(count, total, minSamples, maxDist, minCpG, \
-    minReg, maxLen, samples, fOut):
+def combineRegions(count, total, order, minSamples, maxDist, \
+    minCpG, minReg, maxLen, samples, fOut):
   '''
   Combine data from CpG positions that are close to each
     other. Process combined regions on the fly (via
     processRegion() function).
   '''
   printed = 0  # count of printed regions
-  for chrom in sorted(total, key=valChr):
+  for chrom in order:
     reg = []  # for saving connected positions
     pos3 = 0
     for pos in sorted(total[chrom], key=int):
@@ -184,12 +172,13 @@ def combineRegions(count, total, minSamples, maxDist, minCpG, \
           reg = []  # reset list
         reg.append(loc)
         pos3 = loc
-    # process last genomic region
+    # process last genomic region for this chromosome
     printed += processRegion(chrom, reg, count, minCpG, \
       minReg, maxLen, samples, fOut)
   return printed
 
-def processFile(fname, minReads, count, total, samples):
+def processFile(fname, minReads, count, total, order, \
+    samples):
   '''
   Load the methylation/unmethylation counts for a file.
   '''
@@ -217,6 +206,7 @@ def processFile(fname, minReads, count, total, samples):
     if not chrom in count:
       count[chrom] = {}
       total[chrom] = {}
+      order.append(chrom)
     if not pos in count[chrom]:
       count[chrom][pos] = {}
     count[chrom][pos][sample] = [meth, unmeth]
@@ -287,19 +277,20 @@ def main():
     sys.stderr.write('Loading methylation information\n')
   count = {}    # for methylated, unmethylated counts
   total = {}    # for number of samples with min. coverage
+  order = []    # for ordered chromosome names
   samples = []  # list of sample names
   for fname in fIn:
     if verbose:
       sys.stderr.write('  file: %s\n' % fname)
-    processFile(fname, minReads, count, total, samples)
+    processFile(fname, minReads, count, total, order, samples)
 
   # produce output
   if verbose:
     sys.stderr.write('Combining regions and producing output\n')
   fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] \
     + samples) + '\n')
-  printed = combineRegions(count, total, minSamples, maxDist, \
-    minCpG, minReg, maxLen, samples, fOut)
+  printed = combineRegions(count, total, order, minSamples, \
+    maxDist, minCpG, minReg, maxLen, samples, fOut)
   if verbose:
     sys.stderr.write('Regions printed: %d\n' % printed)
   if fOut != sys.stdout:
