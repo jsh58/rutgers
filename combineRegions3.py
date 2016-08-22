@@ -116,12 +116,15 @@ def processRegion(chrom, reg, count, minCpG, minReg, \
   To print a line, the region must have at least
     <minCpG> sites, and at least one sample must have
     at least <minReg> methylation counts.
+  Any region longer than <maxLen> will be split via
+    splitRegion().
   Any sample that does not have <minReg> methylation
     counts gets an 'NA' designation.
   '''
   if len(reg) < minCpG:
     return 0
 
+  # split region larger than maxLen
   if reg[-1] - reg[0] > maxLen:
     return splitRegion(chrom, reg, count, minCpG, minReg, \
       maxLen, samples, fOut)

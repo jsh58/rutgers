@@ -2,8 +2,10 @@
 
 # JMG 4/26/16
 # Testing regions for differential methylation.
-# Version 2: comparing sets of samples
-# Version 4: using t-test from original diffMeth.py
+# Performs pairwise comparisons for all groups of
+#   samples, reports difference in average
+#   methylation and p-value based on Welch's
+#   t-test (two-tailed).
 
 import sys
 import gzip
@@ -110,6 +112,8 @@ def getSample(csv):
 def saveIndexes(fIn, samples):
   '''
   Find indexes for samples in header of input file.
+  Also save indexes for extra fields:
+    'gene', 'distance', 'location'
   '''
   idxs = []  # for indexes
   res = []   # for ordered sample names
@@ -137,7 +141,8 @@ def saveIndexes(fIn, samples):
   # make sure all samples were found
   for i in range(len(idxs)):
     if len(idxs[i]) != len(samples[i]):
-      sys.stderr.write('Error! Cannot find all sample names in input file\n')
+      sys.stderr.write('Error! Cannot find all sample names' \
+        + ' in input file\n')
       sys.exit(-1)
 
   # construct header for output file
