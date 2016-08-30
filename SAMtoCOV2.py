@@ -80,6 +80,73 @@ def openWrite(filename):
     sys.exit(-1)
   return f
 
+def loadBed(bedFile, bedRegions, bedSites):
+  '''
+  Load BED regions from file. Open output file.
+  '''
+  # load BED regions, do not allow repeated names
+  f = openRead(bedFile)
+  for line in f:
+    spl = line.rstrip().split('\t')
+    if len(spl) < 4:
+      sys.stderr.write('Error! Poorly formatted BED record:\n%s' % line)
+      sys.exit(-1)
+    if spl[3] in bedRegions:
+      sys.stderr.write('Error! Repeated BED region name: %s\n' % spl[3])
+      sys.exit(-1)
+    # save chrom, start, and end
+    bedRegions[spl[3]] = (spl[0], getInt(spl[1]), getInt(spl[2]))
+    bedSites[spl[3]] = [] # CpG sites will be loaded in parseSAM()
+  f.close()
+
+  # open output file
+  fname = '.'.join(bedFile.split('.')[:-1])
+  while os.path.isfile(fname + '_linked.txt'):
+    fname += '-'
+  return openWrite(fname + '_linked.txt')
+
+def printBed(bedOut, bedRegions, bedSites, linkedMeth):
+  '''
+  Print linked-methylation information for designated regions.
+  '''
+  for reg in sorted(bedRegions):
+    # print header
+    chrom = bedRegions[reg][0]
+    bedOut.write('Region: %s, %s:%d-%d\nSites: ' % (reg, \
+      chrom, bedRegions[reg][1], bedRegions[reg][2]))
+    count = 0
+    for pos in sorted(bedSites[reg]):
+      if count:
+        bedOut.write(', %d' % pos)
+      else:
+        bedOut.write('%d' % pos)
+      count += 1
+    if count == 0:
+      bedOut.write('<none>\n\n')
+      continue
+    bedOut.write('\n')
+
+    # compile methylation results for each read
+    for head in linkedMeth[reg]:
+      width = len(bedSites[reg]) + 2  # width of printed field
+      res = ''
+      for pos in sorted(bedSites[reg]):
+        if pos not in linkedMeth[reg][head][chrom]:
+          res += '-'
+          continue
+        unmeth, meth = linkedMeth[reg][head][chrom][pos]
+        if unmeth == 1:
+          res += '0'
+        elif meth == 1:
+          res += '1'
+        else:
+          sys.stderr.write('Error! Problem parsing linked '
+            + 'methylation information for read %s\n' % head)
+          sys.exit(-1)
+          res += '-'
+      bedOut.write('%-*s\t%s\n' % (width, res, head))
+    bedOut.write('\n')
+
 def printOutput(fOut, genome, meth, minCov, pct):
   '''
   Print the sorted output -- location and methylation counts
@@ -95,17 +162,17 @@ def printOutput(fOut, genome, meth, minCov, pct):
         # 4th column is percent methylated
         fOut.write('%s\t%d\t%d\t%.6f\t%d\t%d\n' % (chrom, loc, loc+1,
           100.0 * meth[chrom][loc][0] / total,
-          meth[chrom][loc][0], meth[chrom][loc][1]))
+          meth[chrom][loc][1], meth[chrom][loc][0]))
       else:
         # 4th column is strand ('+')
         fOut.write('%s\t%d\t%d\t+\t%d\t%d\n' % (chrom, loc, loc+1,
-          meth[chrom][loc][0], meth[chrom][loc][1]))
+          meth[chrom][loc][1], meth[chrom][loc][0]))
       printed += 1
   return printed
 
 def parseCigar(cigar):
   '''
-  Return in/del offset, plus string representation of cigar.
+  Return in/del offset, plus string representation of CIGAR.
   '''
   parts = re.findall(r'(\d+)([IDM])', cigar)
   offset = 0
@@ -129,17 +196,6 @@ def getTag(lis, tag):
   sys.stderr.write('Error! Cannot find %s in SAM record\n' % tag)
   sys.exit(-1)
 
-def loadBed(bedFile, bedRegions):
-  '''
-  Load BED regions from file. Open output file.
-  '''
-
-  # open output file
-  fname = bedFile.split('.')[:-1]
-  while os.path.isfile(fname + '_linked.txt'):
-    fname += '-'
-  return openWrite(fname + '_linked.txt')
-
 def saveMeth(d, chrom, loc, meth):
   '''
   Save the methylation info for a given genomic position
@@ -150,11 +206,12 @@ def saveMeth(d, chrom, loc, meth):
   if loc not in d[chrom]:
     d[chrom][loc] = [0, 0]
   if meth == 'z':
-    d[chrom][loc][1] += 1  # unmethylated: index 1
+    d[chrom][loc][0] += 1  # unmethylated: index 0
   else:
-    d[chrom][loc][0] += 1  # methylated: index 0
+    d[chrom][loc][1] += 1  # methylated: index 1
 
-def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins, dup, peMeth):
+def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins, dup,
+    peMeth, head, bedRegions, bedSites, linkedMeth):
   '''
   Load methylation info using a methylation string (strXM).
   '''
@@ -194,6 +251,19 @@ def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins, dup, peMeth):
       if dup == 1:
         saveMeth(peMeth, chrom, loc, strXM[i])
 
+      # save methylation data to individual read's dict
+      #   if it falls within a BED region
+      for reg in bedRegions:
+        if bedRegions[reg][0] == chrom and bedRegions[reg][1] <= loc \
+            and bedRegions[reg][2] > loc:
+          if reg not in linkedMeth:
+            linkedMeth[reg] = {}
+          if head not in linkedMeth[reg]:
+            linkedMeth[reg][head] = {}
+          saveMeth(linkedMeth[reg][head], chrom, loc, strXM[i])
+          if loc not in bedSites[reg]:
+            bedSites[reg].append(loc)
+
       # update counts
       if strXM[i] == 'Z':
         methCount += 1
@@ -210,7 +280,7 @@ def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins, dup, peMeth):
 
   return methCount, count
 
-def parseSAM(f, meth):
+def parseSAM(f, meth, bedRegions, bedSites, linkedMeth):
   '''
   Parse the SAM file. Save methylation data.
   '''
@@ -269,8 +339,9 @@ def parseSAM(f, meth):
     strXM = getTag(spl[11:], 'XM')  # methylation string from Bismark
 
     # load CpG methylation info
-    count1, count2 = loadMeth(cigar, strXM, chrom, pos, rc, meth, \
-      ins, dup, peMeth.get(spl[0], None))
+    count1, count2 = loadMeth(cigar, strXM, chrom, pos, rc, \
+      meth, ins, dup, peMeth.get(spl[0], None), \
+      spl[0], bedRegions, bedSites, linkedMeth)
     methCount += count1
     count += count2
 
@@ -306,7 +377,7 @@ def main():
     elif args[i] == '-pct':
       pct = 1
     elif args[i] == '-b':
-      bedFile = openRead(args[i+1])
+      bedFile = args[i+1]
     elif args[i] == '-h':
       usage()
     else:
@@ -324,14 +395,16 @@ def main():
     usage()
 
   # load BED file regions
-  bedRegions = []
-  bedOut = None
+  bedRegions = {}  # defining genomic regions for each BED record
+  bedSites = {}    # CpG sites for each region (loaded in parseSAM())
   if bedFile != None:
-    bedOut = loadBed(bedFile, bedRegions)
+    bedOut = loadBed(bedFile, bedRegions, bedSites)
 
   # process file
-  meth = {}  # dict for methylation counts
-  genome, total, mapped, methCount, count = parseSAM(fIn, meth)
+  meth = {}        # dict for methylation counts
+  linkedMeth = {}  # dict for linked methylation data
+  genome, total, mapped, methCount, count = parseSAM(fIn, meth,
+    bedRegions, bedSites, linkedMeth)
   if fIn != sys.stdin:
     fIn.close()
 
@@ -339,6 +412,9 @@ def main():
   printed = printOutput(fOut, genome, meth, minCov, pct)
   if fOut != sys.stdout:
     fOut.close()
+  if bedFile != None:
+    printBed(bedOut, bedRegions, bedSites, linkedMeth)
+    bedOut.close()
 
   # print summary counts
   sys.stderr.write('Reads analyzed: %d\n' % total)
