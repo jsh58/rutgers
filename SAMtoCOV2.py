@@ -31,8 +31,16 @@ def usage():
     -pct      Replace <strand> with methylation percent in the
                 output file (fourth column)
     -b <file> BED file listing regions for which to collect linked
-                methylation data (which will be written to
-                <file>_linked.txt)'''
+                methylation data. The output file, <file>_linked.txt,
+                will give, for each region, the locations of the CpG
+                sites and the methylation information of each read
+                at those sites ('0' = unmethylated; '1' = methylated;
+                '-' = no data). For example:
+                  Region: ampliconA, chrZ:100-200
+                  Sites: 102, 109, 123, 140, 147, 168
+                  00100-  read1
+                  001100  read2
+                  --0000  read3'''
   sys.exit(-1)
 
 def getInt(arg):
@@ -99,7 +107,7 @@ def loadBed(bedFile, bedRegions, bedSites):
     bedSites[spl[3]] = [] # CpG sites will be loaded in parseSAM()
   f.close()
 
-  # open output file
+  # open output file (strip suffix and add '_linked.txt')
   fname = '.'.join(bedFile.split('.')[:-1])
   while os.path.isfile(fname + '_linked.txt'):
     fname += '-'
@@ -115,6 +123,7 @@ def printBed(bedOut, bedRegions, bedSites, linkedMeth):
     bedOut.write('Region: %s, %s:%d-%d\nSites: ' % (reg, \
       chrom, bedRegions[reg][1], bedRegions[reg][2]))
     count = 0
+    # print list of sorted CpG sites
     for pos in sorted(bedSites[reg]):
       if count:
         bedOut.write(', %d' % pos)
@@ -122,29 +131,28 @@ def printBed(bedOut, bedRegions, bedSites, linkedMeth):
         bedOut.write('%d' % pos)
       count += 1
     if count == 0:
-      bedOut.write('<none>\n\n')
+      bedOut.write('<none>\n\n')  # no CpG sites
       continue
     bedOut.write('\n')
 
     # compile methylation results for each read
+    width = len(bedSites[reg]) + 5  # width of printed field
     for head in linkedMeth[reg]:
-      width = len(bedSites[reg]) + 2  # width of printed field
-      res = ''
+      res = ''  # result string -- meth data for each read
       for pos in sorted(bedSites[reg]):
         if pos not in linkedMeth[reg][head][chrom]:
-          res += '-'
+          res += '-'  # no data labeled '-'
           continue
         unmeth, meth = linkedMeth[reg][head][chrom][pos]
         if unmeth == 1:
-          res += '0'
+          res += '0'  # unmethylated labeled '0'
         elif meth == 1:
-          res += '1'
+          res += '1'  # methylated labeled '1'
         else:
           sys.stderr.write('Error! Problem parsing linked '
             + 'methylation information for read %s\n' % head)
           sys.exit(-1)
-          res += '-'
-      bedOut.write('%-*s\t%s\n' % (width, res, head))
+      bedOut.write('%-*s%s\n' % (width, res, head))
     bedOut.write('\n')
 
 def printOutput(fOut, genome, meth, minCov, pct):
@@ -251,16 +259,17 @@ def loadMeth(cigar, strXM, chrom, pos, rc, meth, ins, dup,
       if dup == 1:
         saveMeth(peMeth, chrom, loc, strXM[i])
 
-      # save methylation data to individual read's dict
-      #   if it falls within a BED region
+      # save methylation data if it falls within a BED region
       for reg in bedRegions:
         if bedRegions[reg][0] == chrom and bedRegions[reg][1] <= loc \
             and bedRegions[reg][2] > loc:
+          # save meth data to linkedMeth dict (using read header)
           if reg not in linkedMeth:
             linkedMeth[reg] = {}
           if head not in linkedMeth[reg]:
             linkedMeth[reg][head] = {}
           saveMeth(linkedMeth[reg][head], chrom, loc, strXM[i])
+          # save location to bedSites dict
           if loc not in bedSites[reg]:
             bedSites[reg].append(loc)
 
@@ -357,8 +366,8 @@ def main():
   Main.
   '''
   # Default parameters
-  minCov = 1   # min. coverage to report a CpG site
-  pct = 0      # report methylation percents in output
+  minCov = 1     # min. coverage to report a CpG site
+  pct = 0        # report methylation percents in output
   fIn = None     # input file
   fOut = None    # output file
   bedFile = None # (optional) BED file for linked meth. data
@@ -394,7 +403,7 @@ def main():
     sys.stderr.write('Error! Must specify input and output files\n')
     usage()
 
-  # load BED file regions
+  # load BED file regions (optional)
   bedRegions = {}  # defining genomic regions for each BED record
   bedSites = {}    # CpG sites for each region (loaded in parseSAM())
   if bedFile != None:
