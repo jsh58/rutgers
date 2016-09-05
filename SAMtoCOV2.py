@@ -136,23 +136,22 @@ def printBed(bedOut, bedRegions, bedSites, linkedMeth):
     bedOut.write('\n')
 
     # compile methylation results for each read
-    width = len(bedSites[reg]) + 5  # width of printed field
     for head in linkedMeth[reg]:
       res = ''  # result string -- meth data for each read
       for pos in sorted(bedSites[reg]):
         if pos not in linkedMeth[reg][head][chrom]:
-          res += '-'  # no data labeled '-'
+          res += '-'  # no data: labeled '-'
           continue
         unmeth, meth = linkedMeth[reg][head][chrom][pos]
         if unmeth == 1:
-          res += '0'  # unmethylated labeled '0'
+          res += '0'  # unmethylated: labeled '0'
         elif meth == 1:
-          res += '1'  # methylated labeled '1'
+          res += '1'  # methylated: labeled '1'
         else:
           sys.stderr.write('Error! Problem parsing linked '
             + 'methylation information for read %s\n' % head)
           sys.exit(-1)
-      bedOut.write('%-*s%s\n' % (width, res, head))
+      bedOut.write('%s\t%s\n' % (res, head))
     bedOut.write('\n')
 
 def printOutput(fOut, genome, meth, minCov, pct):
