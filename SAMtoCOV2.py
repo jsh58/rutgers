@@ -427,11 +427,15 @@ def main():
   # print summary counts
   sys.stderr.write('Reads analyzed: %d\n' % total)
   sys.stderr.write('  Mapped: %d\n' % mapped)
-  sys.stderr.write('Total CpGs analyzed: %d\n' % count)
+  sys.stderr.write('  Total CpG methylation values in the reads: %d\n' % count)
+  sys.stderr.write('    Methylated: %d\n' % methCount)
+  sys.stderr.write('    Unmethylated: %d\n' % (count - methCount))
   if count:
-    sys.stderr.write('  Percent methylated: %.1f%%\n' % \
+    sys.stderr.write('    Percent methylated: %.1f%%\n' % \
       (100.0 * methCount / count))
-  sys.stderr.write('Total CpGs printed: %d\n' % printed)
+  else:
+    sys.stderr.write('    Percent methylated: n/a\n')
+  sys.stderr.write('Genomic CpG sites printed: %d\n' % printed)
 
 if __name__ == '__main__':
   main()
