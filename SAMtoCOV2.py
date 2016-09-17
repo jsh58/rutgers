@@ -5,9 +5,9 @@
 #   directly from a SAM file made by Bismark.
 
 import sys
+import os.path
 import re
 import gzip
-import os.path
 
 def usage():
   print '''Usage: python SAMtoCOV.py  -i <SAM>  -o <OUT>  [options]

@@ -4,6 +4,7 @@
 # Combining regions for a set of bismark cov files.
 
 import sys
+import os.path
 import gzip
 import math
 
@@ -22,10 +23,10 @@ def usage():
                     to consider a position (def. 1)
     To analyze a region of CpGs:
       -d <int>    Maximum distance between CpGs to combine into the same
-                    region (def. 1000)
+                    region (def. 100)
       -c <int>    Minimum number of CpGs in a region to report (def. 1)
       -x <int>    Maximum length of a region of CpGs -- regions longer than
-                    this will be split into smaller regions (def. 10000000)
+                    this will be split into smaller regions (def. 1e9)
     To report a particular result:
       -m <int>    Minimum total reads in a region for a sample (def. 1)
     Other:
@@ -224,16 +225,16 @@ def main():
   Main.
   '''
   # Default parameters
-  minReads = 1      # min. reads in a sample at a position
-  minSamples = 1    # min. samples with min. reads at a position
-  maxDist = 1000    # max. distance between CpGs
-  minCpG = 1        # min. CpGs in a region
-  minReg = 1        # min. reads in a sample for a region
-  maxLen = 10000000 # max. length of a combined region
-  fOut = None       # output file
-  fIn = []          # list of input files
-  verbose = 0       # verbose option
-                  
+  minReads = 1        # min. reads in a sample at a position
+  minSamples = 1      # min. samples with min. reads at a position
+  maxDist = 100       # max. distance between CpGs
+  minCpG = 1          # min. CpGs in a region
+  minReg = 1          # min. reads in a sample for a region
+  maxLen = 1000000000 # max. length of a combined region
+  outfile = ''        # output file
+  fIn = []            # list of input files
+  verbose = 0         # verbose option
+
   # Get command-line args
   args = sys.argv[1:]
   if len(args) < 2: usage()
@@ -253,7 +254,7 @@ def main():
       elif args[i] == '-x':
         maxLen = getInt(args[i+1])
       elif args[i] == '-o':
-        fOut = openWrite(args[i+1])
+        outfile = args[i+1]
       elif args[i] == '-v':
         verbose = 1
         i -= 1
@@ -268,12 +269,17 @@ def main():
     i += 1
 
   # check for I/O errors
-  if fOut == None:
+  if outfile == '':
     sys.stderr.write('Error! Must supply an output file\n')
     usage()
   if len(fIn) == 0:
     sys.stderr.write('Error! Must supply one or more input files\n')
     usage()
+  for fname in fIn:
+    if not os.path.isfile(fname):
+      sys.stderr.write('Error! Cannot open input file %s\n' % fname)
+      usage()
+  fOut = openWrite(outfile)
 
   # load methylation information for each sample
   if verbose:
