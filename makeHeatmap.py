@@ -9,7 +9,7 @@ def main():
   args = sys.argv[1:]
   if len(args) < 2:
     sys.stderr.write('Usage: python %s  <gene_exp.diff>  ' % sys.argv[0]
-      + '<output>  [<base_sample>]\n')
+      + '<output>  [<base_sample>]  [excluded_samples_csv]\n')
     sys.exit(-1)
   fIn = open(args[0], 'rU')
   fOut = open(args[1], 'w')
@@ -18,6 +18,11 @@ def main():
   sample = ''
   if len(args) > 2:
     sample = args[2]
+
+  # load samples to be excluded from analysis
+  excl = []
+  if len(args) > 3:
+    excl = args[3].split(',')
 
   # check header for issues
   header = fIn.readline().rstrip()
@@ -34,6 +39,13 @@ def main():
   maxVal = 0.0 # max fold-change (for converting 'inf')
   for line in fIn:
     spl = line.rstrip().split('\t')
+
+    # check for excluded sample
+    if excl and (spl[4] in excl or spl[5] in excl):
+      continue
+    #if sample and spl[4] != sample and spl[5] != sample:
+    #  continue
+
     gene = spl[0]
     if gene not in val:
       val[gene] = []
