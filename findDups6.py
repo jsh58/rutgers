@@ -15,19 +15,23 @@ class Read():
     a read's alignment(s).
   '''
   def __init__(self, spl):
-    self.r1 = []  # alignments of first read
-    self.r2 = []  # alignments of second read
+    self.r1 = []    # alignments of first read
+    self.r2 = []    # alignments of second read
+    self.pair = []  # paired alignments
     self.header = spl[0]
     self.addInfo(spl)  # save initial alignment
 
   def addInfo(self, spl):
-    chr, pos, rc, first = self.loadInfo(spl)
+    chr, pos, rc, first, hi, ascore, mateChr, matePos \
+      = self.loadInfo(spl)
     if first:
       #self.r1.append((chr, pos))
-      self.r1.append('%s-%d' % (chr, pos))
+      #self.r1.append('%s:%d:%s:%s' % (chr, pos, hi, ascore))
+      self.r1.append('%s:%d:%s:%d' % (chr, pos, mateChr, matePos))
     else:
       #self.r2.append((chr, pos))
-      self.r2.append('%s-%d' % (chr, pos))
+      #self.r2.append('%s:%d:%s:%s' % (chr, pos, hi, ascore))
+      self.r2.append('%s:%d:%s:%d' % (chr, pos, mateChr, matePos))
 
   def loadInfo(self, spl):
     '''
@@ -44,9 +48,13 @@ class Read():
     first = 0
     if flag & 0x80:
       first = 1
-    return chr, pos, rc, first
+    mateChr = spl[6]
+    matePos = int(spl[7])
+    hi = self.getTag(spl[11:], 'HI')
+    ascore = self.getTag(spl[11:], 'AS')
+    return chr, pos, rc, first, hi, ascore, mateChr, matePos
 
-  def getTag(lis, tag):
+  def getTag(self, lis, tag):
     '''
     Get optional tag from a SAM record.
     '''
@@ -54,15 +62,17 @@ class Read():
       spl = t.split(':')
       if spl[0] == tag:
         return spl[-1]
-    sys.stderr.write('Error! Cannot find %s in SAM record\n' % tag)
-    sys.exit(-1)
+    return -1
+    #sys.stderr.write('Error! Cannot find %s in SAM record\n' % tag)
+    #sys.exit(-1)
 
   def getHeader(self):
     return self.header
 
   def getInfo(self):
-    res = 'first: ' + ' '.join(self.r1) + '\n'
-    res = 'second: ' + ' '.join(self.r2)
+    res = self.header + '\n'
+    res += 'first: ' + ' '.join(self.r1) + '\n'
+    res += 'second: ' + ' '.join(self.r2)
     return res
 
 def openRead(filename):
@@ -142,11 +152,12 @@ def main():
       for read in reads:
         if read.getHeader() == spl[0]:
           read.addInfo(spl)
-          print read.getHeader() + read.getInfo()
+          print read.getInfo()
+          sys.exit(0)
           break
-      headers[spl[0]] = 1
     else:
       reads.append(Read(spl))
+      headers[spl[0]] = 1
 
     #for read in reads:
     #  print read.getInfo()
