@@ -7,6 +7,7 @@
 # Version 6: determining wtf is wrong with Picard MarkDuplicates
 
 import sys
+import gzip
 import re
 
 class Read():
@@ -43,16 +44,34 @@ class Read():
     pos = int(spl[3])
     rc = 0
     if flag & 0x10:
-      pos += len(spl[9]) + parseCigar(spl[5])
+      # reverse-complement alignment: position is 3' end
+      pos += self.parseCigar(spl[5])
       rc = 1
-    first = 0
+    first = 0   # first segment in template
     if flag & 0x80:
-      first = 1
+      first = 1  # last segment in template
     mateChr = spl[6]
     matePos = int(spl[7])
     hi = self.getTag(spl[11:], 'HI')
     ascore = self.getTag(spl[11:], 'AS')
     return chrom, pos, rc, first, hi, ascore, mateChr, matePos
+
+  def parseCigar(self, cigar):
+    '''
+    Determine 3' position of alignment from CIGAR.
+    '''
+    ops = re.findall(r'(\d+)(\D)', cigar)
+    offset = 0
+    for op in ops:
+      if op[1] in ['M', 'D', 'N', 'S', '=', 'X']:
+        offset += int(op[0])
+      elif op[1] in ['I', 'P', 'H']:
+        pass
+      else:
+        sys.stderr.write('Error! Unknown op %s in cigar %s\n' \
+          % (op[1], cigar))
+        sys.exit(-1)
+    return offset
 
   def getTag(self, lis, tag):
     '''
@@ -71,10 +90,12 @@ class Read():
 
   def getInfo(self):
     return self.r1, self.r2
-    #res = self.header + '\n'
-    #res += 'first: ' + ' '.join(self.r1) + '\n'
-    #res += 'second: ' + ' '.join(self.r2)
-    #return res
+
+  def __str__(self):
+    res = self.header + '\n'
+    res += 'first: ' + ' '.join(self.r1) + '\n'
+    res += 'second: ' + ' '.join(self.r2)
+    print res
 
 def openRead(filename):
   '''
@@ -109,19 +130,6 @@ def openWrite(filename):
     sys.stderr.write('Error! Cannot open %s for writing\n' % filename)
     sys.exit(-1)
   return f
-
-def parseCigar(cigar):
-  '''
-  Determine indel offset of alignment from CIGAR.
-  '''
-  offset = 0
-  ins = re.findall(r'(\d+)I', cigar)
-  for i in ins:
-    offset -= int(i)
-  de = re.findall(r'(\d+)D', cigar)
-  for d in de:
-    offset += int(d)
-  return offset
 
 def main():
   args = sys.argv[1:]
@@ -163,7 +171,11 @@ def main():
     #for read in reads:
     #  print read.getInfo()
     #raw_input()
-    continue
+    count += 1
+    if count % 100000 == 0:
+      print count
+    if count % 1000000 == 0:
+      break
 
   # check alignment scores
   for read in reads:
@@ -186,34 +198,6 @@ def main():
 
   sys.exit(0)
 
-    # determine location -- use 3' end if RC
-    if chr in pos:
-      if loc in pos[chr]:
-        if rc in pos[chr][loc]:
-          if spl[9] in pos[chr][loc][rc]:
-            # location, strand, *and* seq match
-            dups += 1
-          else:
-            # everything matches except seq
-            pos[chr][loc][rc].append(spl[9])
-            if out: fOut.write(line)
-            notSeq += 1
-        else:
-          pos[chr][loc][rc] = [spl[9]]
-          if out: fOut.write(line)
-          uniq += 1
-      else:
-        pos[chr][loc] = {}
-        pos[chr][loc][rc] = [spl[9]]
-        if out: fOut.write(line)
-        uniq += 1
-    else:
-      pos[chr] = {}
-      pos[chr][loc] = {}
-      pos[chr][loc][rc] = [spl[9]]
-      if out: fOut.write(line)
-      uniq += 1
-    count += 1
   f.close()
   if out: fOut.close()
 
