@@ -22,16 +22,16 @@ class Read():
     self.addInfo(spl)  # save initial alignment
 
   def addInfo(self, spl):
-    chr, pos, rc, first, hi, ascore, mateChr, matePos \
+    chrom, pos, rc, first, hi, ascore, mateChr, matePos \
       = self.loadInfo(spl)
     if first:
-      #self.r1.append((chr, pos))
-      #self.r1.append('%s:%d:%s:%s' % (chr, pos, hi, ascore))
-      self.r1.append('%s:%d:%s:%d' % (chr, pos, mateChr, matePos))
+      #self.r1.append((chrom, pos))
+      self.r1.append('%s:%d:%s:%s' % (chrom, pos, hi, ascore))
+      #self.r1.append('%s:%d:%s:%d' % (chrom, pos, mateChr, matePos))
     else:
-      #self.r2.append((chr, pos))
-      #self.r2.append('%s:%d:%s:%s' % (chr, pos, hi, ascore))
-      self.r2.append('%s:%d:%s:%d' % (chr, pos, mateChr, matePos))
+      #self.r2.append((chrom, pos))
+      self.r2.append('%s:%d:%s:%s' % (chrom, pos, hi, ascore))
+      #self.r2.append('%s:%d:%s:%d' % (chrom, pos, mateChr, matePos))
 
   def loadInfo(self, spl):
     '''
@@ -39,7 +39,7 @@ class Read():
       a SAM record.
     '''
     flag = int(spl[1])
-    chr = spl[2]
+    chrom = spl[2]
     pos = int(spl[3])
     rc = 0
     if flag & 0x10:
@@ -52,7 +52,7 @@ class Read():
     matePos = int(spl[7])
     hi = self.getTag(spl[11:], 'HI')
     ascore = self.getTag(spl[11:], 'AS')
-    return chr, pos, rc, first, hi, ascore, mateChr, matePos
+    return chrom, pos, rc, first, hi, ascore, mateChr, matePos
 
   def getTag(self, lis, tag):
     '''
@@ -70,10 +70,11 @@ class Read():
     return self.header
 
   def getInfo(self):
-    res = self.header + '\n'
-    res += 'first: ' + ' '.join(self.r1) + '\n'
-    res += 'second: ' + ' '.join(self.r2)
-    return res
+    return self.r1, self.r2
+    #res = self.header + '\n'
+    #res += 'first: ' + ' '.join(self.r1) + '\n'
+    #res += 'second: ' + ' '.join(self.r2)
+    #return res
 
 def openRead(filename):
   '''
@@ -152,8 +153,8 @@ def main():
       for read in reads:
         if read.getHeader() == spl[0]:
           read.addInfo(spl)
-          print read.getInfo()
-          sys.exit(0)
+          #print read.getInfo()
+          #sys.exit(0)
           break
     else:
       reads.append(Read(spl))
@@ -163,6 +164,27 @@ def main():
     #  print read.getInfo()
     #raw_input()
     continue
+
+  # check alignment scores
+  for read in reads:
+    r1, r2 = read.getInfo()
+    best = 1000
+    for aln in r1:
+      spl = aln.split(':')
+      if best == 1000:
+        best = spl[-1]
+      elif spl[-1] != best:
+        print read.getHeader(), r1
+
+    best = 1000
+    for aln in r2:
+      spl = aln.split(':')
+      if best == 1000:
+        best = spl[-1]
+      elif spl[-1] != best:
+        print read.getHeader(), r2
+
+  sys.exit(0)
 
     # determine location -- use 3' end if RC
     if chr in pos:
