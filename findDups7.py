@@ -5,6 +5,7 @@
 # (mimicking bismark's deduplicate script)
 # Version 3: counting results, including actual seq matches
 # Version 6: producing a list of PCR duplicates
+# Version 7: specific for TopHat's output file
 
 import sys
 import gzip
@@ -16,8 +17,11 @@ class Align():
   '''
   def __init__(self, chrom, pos, revComp, offset, secondary, \
       hi, ascore):
-    self.chrom = chrom
-    self.pos = pos
+    self.chrom5 = chrom
+    self.chrom3 = chrom
+
+    self.pos5 = pos
+    self.pos3 = pos
     self.revComp = revComp  # may be redundant, since offset will be 0 if revComp == 0
     self.offset = offset  # dist. to 3' end for rc alignments
     self.secondary = secondary
@@ -54,13 +58,7 @@ class Read():
     a read's alignment(s).
   '''
   def __init__(self):
-    #self.aln = []   # all alignments
-    #self.pair = []  # paired alignments
-
-    self.r1 = []    # alignments of first read
-    self.r2 = []    # alignments of second read
-    #self.header = spl[0]
-    #self.addInfo(spl)  # save initial alignment
+    self.aln = {}   # all alignments
 
 
 def openRead(filename):
@@ -138,57 +136,12 @@ def loadInfo(spl):
 
   # deal with alignments to the reverse strand
   revComp = 0
-  offset = 0  # distance to 3' end of alignment
   if flag & 0x10:
     revComp = 1  # may be redundant since offset will be > 0
-    offset = parseCigar(spl[5])
+    pos += parseCigar(spl[5])
 
-  first = 0   # 0 -> first segment in template; 1 -> last segment
-  if flag & 0x80:
-    first = 1
-    if flag & 0x40:
-      sys.stderr.write('Error! Linear templates with > 2 reads '
-        + 'are not allowed\n')
-      sys.exit(-1)
-  secondary = flag & 0x900
+  return (chrom, pos), revComp
 
-  hi = getTag(spl[11:], 'HI')  # query hit index
-  ascore = getTag(spl[11:], 'AS')  # alignment score
-
-  # return Align object
-  if flag & 0x1 and not flag & 0x8:
-    # paired alignment: save mate information
-    matePos = int(spl[7])
-    mateChr = ''
-    if spl[6] != '*' and matePos != 0:
-      mateChr = spl[2]
-      if spl[6] != '=':
-        mateChr = spl[6]
-    return PEalign(chrom, pos, revComp, offset, secondary, hi, ascore, mateChr, matePos), first
-
-  return Align(chrom, pos, revComp, offset, secondary, hi, ascore), first
-
-#def addInfo(spl, read):
-#  '''
-#  Add alignment info to existing read.
-#  '''
-#  aln, first = loadInfo(spl)
-#  if first:
-#    read.r2.append(aln)
-#  else:
-#    read.r1.append(aln)
-#
-#    flag = 1
-#    for r in self.r2:
-#      # determine if paired alignment
-#      if r.getPos() == aln.getMatePos() \
-#          and aln.getPos() == r.getMatePos():
-#        self.pair.append((r, aln))
-#        self.r2.remove(r)
-#        flag = 0
-#        break
-#    if flag:
-#      self.r1.append(aln)
 
 
 
@@ -215,57 +168,92 @@ def processSAM(f, fOut):
 
     # save alignment info
     if spl[0] not in reads:
-      reads[spl[0]] = Read()
-    aln, first = loadInfo(spl)
-    if first:
-      reads[spl[0]].r2.append(aln)
-    else:
-      reads[spl[0]].r1.append(aln)
+      reads[spl[0]] = {}
+    aln, revComp = loadInfo(spl)
 
-    #for read in reads:
-    #  print read.getInfo()
-    #raw_input()
+    hi = getTag(spl[11:], 'HI')  # query hit index
+    if hi not in reads[spl[0]]:
+      reads[spl[0]][hi] = [[] for i in range(2)]
+    if reads[spl[0]][hi][revComp]:
+      sys.stderr.write('Error! already a result for %s, %d, %d\n' % (spl[0], hi, revComp))
+      sys.exit(-1)
+    reads[spl[0]][hi][revComp] = aln
+
     count += 1
-    if count % 100000 == 0:
-      print count
     #if count % 100000 == 0:
-    #  break
+    #  print count
 
-  print count
+  print 'Total reads:', count
+  print 'And again:', len(reads)
+
+  # conglomerate alignments
+  reads5 = {}
+  reads3 = {}
+  readsPE = {}
   for r in reads:
-    print 'first:', len(reads[r].r1)
-    print 'second:', len(reads[r].r2)
-    for aln in reads[r].r1:
-      print r, aln
-    #for aln in reads[r].r2:
-    #  print r, aln
+    for h in reads[r]:
+      if reads[r][h][0] and reads[r][h][1]:
+        if r not in readsPE:
+          readsPE[r] = []
+        readsPE[r].append(reads[r][h][0] + reads[r][h][1])
+        if r in reads5:
+          reads5.remove(r)
+        if r in reads3:
+          reads3.remove(r)
+      elif r not in readsPE:
+        if not reads[r][h][1]:
+          if r not in reads5:
+            reads5[r] = []
+          reads5[r].append(reads[r][h][0])
+        else:
+          if r not in reads3:
+            reads3[r] = []
+          reads3[r].append(reads[r][h][1])
 
-  sys.exit(0)
-  # check alignment scores
-  for header in reads:
-    r1, r2 = reads[header].getInfo()
-    best = 1000
-    for aln in r1:
-      spl = aln.split(':')
-      if best == 1000:
-        best = spl[-1]
-      elif spl[-1] != best:
-        print header, r1
+  dups5 = []  # saving duplicate read headers
+  dups3 = []  # ditto
+  dupsPE = [] # ditto
+  rep = {}    # saving alignments, to compare against
+  for r in reads5:
+    for aln in reads5[r]:
+      if aln in rep:
+        dups5.append(r)
+      else:
+        rep[aln] = 1
+  rep = {}
+  for r in reads3:
+    for aln in reads3[r]:
+      if aln in rep:
+        dups3.append(r)
+      else:
+        rep[aln] = 1
+  rep = {}
+  for r in readsPE:
+    for aln in readsPE[r]:
+      if aln in rep:
+        dupsPE.append(r)
+      else:
+        rep[aln] = 1
 
-    best = 1000
-    for aln in r2:
-      spl = aln.split(':')
-      if best == 1000:
-        best = spl[-1]
-      elif spl[-1] != best:
-        print header, r2
+  print 'Reads PE:', len(readsPE)
+  print '    Dups:', len(dupsPE)
+  print 'Reads 5\':', len(reads5)
+  print '    Dups:', len(dups5)
+  print 'Reads 3\':', len(reads3)
+  print '    Dups:', len(dups3)
 
-  sys.exit(0)
+  for r in dupsPE:
+    fOut.write(r + '\n')
+  for r in dups5:
+    fOut.write(r + '\n')
+  for r in dups3:
+    fOut.write(r + '\n')
+
 
 def main():
   args = sys.argv[1:]
-  if len(args) < 1:
-    print 'Usage: python %s  <SAMfile>  [<out>]' % sys.argv[0]
+  if len(args) < 2:
+    print 'Usage: python %s  <SAMfile>  <out>' % sys.argv[0]
     print '  Use \'-\' for stdin/stdout'
     sys.exit(-1)
   f = openRead(args[0])
