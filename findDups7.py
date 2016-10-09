@@ -140,7 +140,12 @@ def loadInfo(spl):
     revComp = 1  # may be redundant since offset will be > 0
     pos += parseCigar(spl[5])
 
-  return (chrom, pos), revComp
+  first = 0   # 0 -> first segment
+              # 1 -> last segment
+  if flag & 0x80:
+    first = 1
+
+  return (chrom, pos), first, revComp
 
 
 
@@ -167,48 +172,49 @@ def processSAM(f, fOut):
       continue
 
     # save alignment info
+    aln, first, revComp = loadInfo(spl)
     if spl[0] not in reads:
-      reads[spl[0]] = {}
-    aln, revComp = loadInfo(spl)
+      reads[spl[0]] = [{} for i in range(2)]
 
     hi = getTag(spl[11:], 'HI')  # query hit index
-    if hi not in reads[spl[0]]:
-      reads[spl[0]][hi] = [[] for i in range(2)]
-    if reads[spl[0]][hi][revComp]:
-      sys.stderr.write('Error! already a result for %s, %d, %d\n' % (spl[0], hi, revComp))
+    if hi not in reads[spl[0]][first]:
+      reads[spl[0]][first][hi] = [[] for i in range(2)]
+    if reads[spl[0]][first][hi][revComp]:
+      sys.stderr.write('Error! already a result for %s, %d, %d, %d\n' % (spl[0], first, hi, revComp))
       sys.exit(-1)
-    reads[spl[0]][hi][revComp] = aln
+    reads[spl[0]][first][hi][revComp] = aln
 
     count += 1
-    #if count % 100000 == 0:
-    #  print count
+    if count % 100000 == 0:
+      print count
 
-  print 'Total reads:', count
-  print 'And again:', len(reads)
+  print 'Total alignments:', count
+  print 'Unique reads:', len(reads)
 
   # conglomerate alignments
   reads5 = {}
   reads3 = {}
   readsPE = {}
   for r in reads:
-    for h in reads[r]:
-      if reads[r][h][0] and reads[r][h][1]:
-        if r not in readsPE:
-          readsPE[r] = []
-        readsPE[r].append(reads[r][h][0] + reads[r][h][1])
-        if r in reads5:
-          reads5.remove(r)
-        if r in reads3:
-          reads3.remove(r)
-      elif r not in readsPE:
-        if not reads[r][h][1]:
-          if r not in reads5:
-            reads5[r] = []
-          reads5[r].append(reads[r][h][0])
-        else:
-          if r not in reads3:
-            reads3[r] = []
-          reads3[r].append(reads[r][h][1])
+    for i in range(2):
+      for h in reads[r][i]:
+        if reads[r][i][h][0] and reads[r][i][h][1]:
+          if r not in readsPE:
+            readsPE[r] = []
+          readsPE[r].append(reads[r][i][h][0] + reads[r][i][h][1])
+          if r in reads5:
+            reads5.remove(r)
+          if r in reads3:
+            reads3.remove(r)
+        elif r not in readsPE:
+          if not reads[r][i][h][1]:
+            if r not in reads5:
+              reads5[r] = []
+            reads5[r].append(reads[r][i][h][0])
+          else:
+            if r not in reads3:
+              reads3[r] = []
+            reads3[r].append(reads[r][i][h][1])
 
   dups5 = []  # saving duplicate read headers
   dups3 = []  # ditto
