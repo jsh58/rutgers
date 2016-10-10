@@ -179,18 +179,13 @@ def printOutput(fOut, genome, meth, minCov, pct):
 
 def parseCigar(cigar):
   '''
-  Return in/del offset, plus string representation of CIGAR.
+  Return string representation of CIGAR.
   '''
-  parts = re.findall(r'(\d+)([IDM])', cigar)
-  offset = 0
+  ops = re.findall(r'(\d+)([IDM])', cigar)
   cigar = ''
-  for part in parts:
-    if part[1] == 'D':
-      offset += int(part[0])
-    elif part[1] == 'I':
-      offset -= int(part[0])
-    cigar += int(part[0]) * part[1]
-  return offset, cigar
+  for op in ops:
+    cigar += int(op[0]) * op[1]
+  return cigar
 
 def getTag(lis, tag):
   '''
@@ -326,9 +321,11 @@ def parseSAM(f, meth, bedRegions, bedSites, linkedMeth):
 
     # determine if read has multiple segments
     dup = 0  # 0 -> single-end alignment
+             # 1 -> paired-end alignment, not seen before
+             # 2 -> paired-end alignment, seen before
     if flag & 0x1:
       if spl[0] in peMeth:
-        dup = 2  # read seen before
+        dup = 2
       else:
         # first segment -- initialize dict
         peMeth[spl[0]] = {}
@@ -343,7 +340,7 @@ def parseSAM(f, meth, bedRegions, bedSites, linkedMeth):
     pos = getInt(spl[3])
 
     # load CIGAR, methylation string
-    offset, cigar = parseCigar(spl[5])
+    cigar = parseCigar(spl[5])
     strXM = getTag(spl[11:], 'XM')  # methylation string from Bismark
 
     # load CpG methylation info
