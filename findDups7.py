@@ -136,16 +136,21 @@ def loadInfo(spl):
 
   # deal with alignments to the reverse strand
   revComp = 0
+  offset = 0
   if flag & 0x10:
     revComp = 1  # may be redundant since offset will be > 0
-    pos += parseCigar(spl[5])
+    offset = parseCigar(spl[5])
 
   first = 0   # 0 -> first segment
               # 1 -> last segment
   if flag & 0x80:
     first = 1
 
-  return (chrom, pos), first, revComp
+  paired = 1
+  if flag & 0x8:
+    paired = 0
+
+  return (chrom, pos, offset), first, paired
 
 
 
@@ -154,7 +159,8 @@ def processSAM(f, fOut):
   '''
   Process the SAM file.
   '''
-  reads = {}    # dict of Reads
+  readsPE = {}    # dict of paired-end reads
+  readsSE = {}    # dict of single-end reads
   count = dups = uniq = notSeq = 0
   for line in f:
     if line[0] == '@':
@@ -172,88 +178,76 @@ def processSAM(f, fOut):
       continue
 
     # save alignment info
-    aln, first, revComp = loadInfo(spl)
-    if spl[0] not in reads:
-      reads[spl[0]] = [{} for i in range(2)]
+    raw, first, paired = loadInfo(spl)
+    # reconfigure alignment
+    if raw[2] > 0:
+      aln = (raw[0], raw[1] + raw[2], '-')
+    else:
+      aln = (raw[0], raw[1], '+')
 
-    hi = getTag(spl[11:], 'HI')  # query hit index
-    if hi not in reads[spl[0]][first]:
-      reads[spl[0]][first][hi] = [[] for i in range(2)]
-    if reads[spl[0]][first][hi][revComp]:
-      sys.stderr.write('Error! already a result for %s, %d, %d, %d\n' % (spl[0], first, hi, revComp))
-      sys.exit(-1)
-    reads[spl[0]][first][hi][revComp] = aln
+    # only one end aligned: save to readsSE
+    if not paired:
+      if spl[0] not in readsSE:
+        readsSE[spl[0]] = []
+      readsSE[spl[0]].append(aln)
+
+    # paired-end (even if not properly paired): save to readsPE
+    else:
+      if spl[0] not in readsPE:
+        readsPE[spl[0]] = {}
+      hi = getTag(spl[11:], 'HI')  # query hit index
+      if hi not in readsPE[spl[0]]:
+        readsPE[spl[0]][hi] = [() for i in range(2)]
+      if aln[2] == '+':
+        readsPE[spl[0]][hi][0] = aln  # put '+' alignment 1st
+      else:
+        readsPE[spl[0]][hi][1] = aln  # '-' alignment 2nd
+
+    #if reads[spl[0]][first][hi][revComp]:
+    #  sys.stderr.write('Error! already a result for %s, %d, %d, %d\n' % (spl[0], first, hi, revComp))
+    #  sys.exit(-1)
+    #reads[spl[0]][first][hi][revComp] = aln
 
     count += 1
-    if count % 100000 == 0:
+    if count % 1000000 == 0:
       print count
 
   print 'Total alignments:', count
-  print 'Unique reads:', len(reads)
 
-  # conglomerate alignments
-  reads5 = {}
-  reads3 = {}
-  readsPE = {}
-  for r in reads:
-    for i in range(2):
-      for h in reads[r][i]:
-        if reads[r][i][h][0] and reads[r][i][h][1]:
-          if r not in readsPE:
-            readsPE[r] = []
-          readsPE[r].append(reads[r][i][h][0] + reads[r][i][h][1])
-          if r in reads5:
-            reads5.remove(r)
-          if r in reads3:
-            reads3.remove(r)
-        elif r not in readsPE:
-          if not reads[r][i][h][1]:
-            if r not in reads5:
-              reads5[r] = []
-            reads5[r].append(reads[r][i][h][0])
-          else:
-            if r not in reads3:
-              reads3[r] = []
-            reads3[r].append(reads[r][i][h][1])
-
-  dups5 = []  # saving duplicate read headers
-  dups3 = []  # ditto
-  dupsPE = [] # ditto
+  # find dups in SE alignments
+  print 'SE reads:', len(readsSE)
   rep = {}    # saving alignments, to compare against
-  for r in reads5:
-    for aln in reads5[r]:
+  dups = 0
+  for r in readsSE:
+    printed = 1
+    for aln in readsSE[r]:
       if aln in rep:
-        dups5.append(r)
+        if printed:
+          fOut.write(r + '\n')
+          dups += 1
+          printed = 0   # don't write dups twice!
       else:
         rep[aln] = 1
-  rep = {}
-  for r in reads3:
-    for aln in reads3[r]:
-      if aln in rep:
-        dups3.append(r)
-      else:
-        rep[aln] = 1
-  rep = {}
+  print '  dups:', dups
+
+
+  # find dups in PE alignments
+  print 'PE reads:', len(readsPE)
+  dups = 0
+  rep = {}    # saving alignments, to compare against
   for r in readsPE:
-    for aln in readsPE[r]:
+    printed = 1
+    for h in readsPE[r]:
+      aln0, aln1 = readsPE[r][h]
+      aln = aln0 + aln1
       if aln in rep:
-        dupsPE.append(r)
+        if printed:
+          fOut.write(r + '\n')
+          dups += 1
+          printed = 0   # don't write dups twice!
       else:
         rep[aln] = 1
-
-  print 'Reads PE:', len(readsPE)
-  print '    Dups:', len(dupsPE)
-  print 'Reads 5\':', len(reads5)
-  print '    Dups:', len(dups5)
-  print 'Reads 3\':', len(reads3)
-  print '    Dups:', len(dups3)
-
-  for r in dupsPE:
-    fOut.write(r + '\n')
-  for r in dups5:
-    fOut.write(r + '\n')
-  for r in dups3:
-    fOut.write(r + '\n')
+  print '  dups:', dups
 
 
 def main():
@@ -274,10 +268,10 @@ def main():
   f.close()
   if out: fOut.close()
 
-  sys.stderr.write('Reads: %10d\n' % count)
-  sys.stderr.write('Unique: %9d\n' % uniq)
-  sys.stderr.write('Dups: %11d\n' % dups)
-  sys.stderr.write('NotSeq: %9d\n' % notSeq)
+  #sys.stderr.write('Reads: %10d\n' % count)
+  #sys.stderr.write('Unique: %9d\n' % uniq)
+  #sys.stderr.write('Dups: %11d\n' % dups)
+  #sys.stderr.write('NotSeq: %9d\n' % notSeq)
 
 if __name__ == '__main__':
   main()
