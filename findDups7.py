@@ -11,56 +11,6 @@ import sys
 import gzip
 import re
 
-class Align():
-  '''
-  A class for representing an alignment.
-  '''
-  def __init__(self, chrom, pos, revComp, offset, secondary, \
-      hi, ascore):
-    self.chrom5 = chrom
-    self.chrom3 = chrom
-
-    self.pos5 = pos
-    self.pos3 = pos
-    self.revComp = revComp  # may be redundant, since offset will be 0 if revComp == 0
-    self.offset = offset  # dist. to 3' end for rc alignments
-    self.secondary = secondary
-    self.hi = hi
-    self.ascore = ascore
-
-  def __str__(self):
-    return ' '.join([self.chrom, str(self.pos), str(self.revComp)])
-
-class PEalign(Align):
-  '''
-  A class for representing an alignment for a
-    paired-end read.
-  '''
-  def __init__(self, chrom, pos, revComp, offset, secondary, \
-      hi, ascore, mateChr, matePos):
-    Align.__init__(self, chrom, pos, revComp, offset, secondary, hi, ascore)
-    self.mateChr = mateChr
-    self.matePos = matePos
-
-#class PEalign():
-#  def __init__(self, first, aln):
-#    if first:
-#      self.r2 = aln
-#      self.r1 = None
-#    else:
-#      self.r1 = aln
-#      self.r2 = None
-#    self.paired = 0  # alignment is full
-
-class Read():
-  '''
-  A class for representing the position(s) of
-    a read's alignment(s).
-  '''
-  def __init__(self):
-    self.aln = {}   # all alignments
-
-
 def openRead(filename):
   '''
   Open filename for reading. '-' indicates stdin.
@@ -94,8 +44,6 @@ def openWrite(filename):
     sys.stderr.write('Error! Cannot open %s for writing\n' % filename)
     sys.exit(-1)
   return f
-
-################################################################
 
 def parseCigar(cigar):
   '''
@@ -137,9 +85,14 @@ def loadInfo(spl):
   # deal with alignments to the reverse strand
   revComp = 0
   offset = 0
+  strange = 0  # are both alignments in same orientation?
   if flag & 0x10:
     revComp = 1  # may be redundant since offset will be > 0
     offset = parseCigar(spl[5])
+    if flag & 0x20:
+      strange = 1  # both alignments are '-'
+  elif not flag & 0x20:
+    strange = 1  # both alignments are '+'
 
   first = 0   # 0 -> first segment
               # 1 -> last segment
@@ -150,7 +103,7 @@ def loadInfo(spl):
   if flag & 0x8:
     paired = 0
 
-  return (chrom, pos, offset), first, paired
+  return (chrom, pos, offset), first, strange, paired
 
 
 
@@ -160,6 +113,7 @@ def processSAM(f, fOut):
   Process the SAM file.
   '''
   readsPE = {}    # dict of paired-end reads
+  readsOdd = {}    # dict of paired-end reads whose orientations match
   readsSE = {}    # dict of single-end reads
   count = dups = uniq = notSeq = 0
   for line in f:
@@ -178,7 +132,7 @@ def processSAM(f, fOut):
       continue
 
     # save alignment info
-    raw, first, paired = loadInfo(spl)
+    raw, first, strange, paired = loadInfo(spl)
     # reconfigure alignment
     if raw[2] > 0:
       aln = (raw[0], raw[1] + raw[2], '-')
@@ -189,7 +143,17 @@ def processSAM(f, fOut):
     if not paired:
       if spl[0] not in readsSE:
         readsSE[spl[0]] = []
-      readsSE[spl[0]].append(aln)
+      if aln not in readsSE[spl[0]]:
+        readsSE[spl[0]].append(aln)  # only save if aln isn't already there
+
+    # paired-end, but in the same orientation: save to readsOdd
+    elif strange:
+      if spl[0] not in readsOdd:
+        readsOdd[spl[0]] = {}
+      hi = getTag(spl[11:], 'HI')  # query hit index
+      if hi not in readsOdd[spl[0]]:
+        readsOdd[spl[0]][hi] = [() for i in range(2)]
+      readsOdd[spl[0]][hi][first] = aln
 
     # paired-end (even if not properly paired): save to readsPE
     else:
@@ -203,19 +167,55 @@ def processSAM(f, fOut):
       else:
         readsPE[spl[0]][hi][1] = aln  # '-' alignment 2nd
 
-    #if reads[spl[0]][first][hi][revComp]:
-    #  sys.stderr.write('Error! already a result for %s, %d, %d, %d\n' % (spl[0], first, hi, revComp))
-    #  sys.exit(-1)
-    #reads[spl[0]][first][hi][revComp] = aln
-
     count += 1
-    if count % 1000000 == 0:
+    if count % 10000000 == 0:
       print count
 
   print 'Total alignments:', count
 
+
+  # eliminate duplicates within a read (e.g. alternative spliced alignments)
+  # also, make sure paired alignments are, you know, paired
+  for r in readsOdd:
+    rep = {}    # saving alignments, to compare against
+    hrem = []
+    for h in readsOdd[r]:
+      if not readsOdd[r][h][0] or not readsOdd[r][h][1]:
+        sys.stderr.write('Error! Incomplete PE alignment for read %s, HI %d\n' % (r, h))
+        sys.exit(-1)
+      aln0, aln1 = readsOdd[r][h]
+      aln = aln0 + aln1
+      if aln in rep or (aln1 + aln0) in rep:
+        hrem.append(h)
+      else:
+        rep[aln] = 1
+    for h in hrem:
+      #print r, h
+      #raw_input()
+      del readsOdd[r][h]
+  for r in readsPE:
+    rep = {}    # saving alignments, to compare against
+    hrem = []
+    for h in readsPE[r]:
+      if not readsPE[r][h][0] or not readsPE[r][h][1]:
+        sys.stderr.write('Error! Incomplete PE alignment for read %s, HI %d\n' % (r, h))
+        sys.exit(-1)
+      aln0, aln1 = readsPE[r][h]
+      aln = aln0 + aln1
+      if aln in rep:
+        hrem.append(h)
+      else:
+        rep[aln] = 1
+    for h in hrem:
+      if r == 'NS500532:133:HF7C3BGXY:2:13212:3761:17502':
+        print r, h
+      #raw_input()
+      del readsPE[r][h]
+
+
+
   # find dups in SE alignments
-  print 'SE reads:', len(readsSE)
+  print 'SE reads:%10d' % len(readsSE)
   rep = {}    # saving alignments, to compare against
   dups = 0
   for r in readsSE:
@@ -223,31 +223,78 @@ def processSAM(f, fOut):
     for aln in readsSE[r]:
       if aln in rep:
         if printed:
-          fOut.write(r + '\n')
+          fOut.write('\t'.join([r, 'aln: ' + str(aln), rep[aln], 'single-end\n']))
           dups += 1
           printed = 0   # don't write dups twice!
       else:
-        rep[aln] = 1
-  print '  dups:', dups
+        rep[aln] = r
+  print '  dups:%12d' % dups
 
-
-  # find dups in PE alignments
-  print 'PE reads:', len(readsPE)
+  # find dups in SE alignments
+  print 'Str reads:%9d (may be included in PE reads count)' % len(readsOdd)
   dups = 0
   rep = {}    # saving alignments, to compare against
+  for r in readsOdd:
+    printed = 1
+    for h in readsOdd[r]:
+      aln0, aln1 = readsOdd[r][h]
+      aln = aln0 + aln1
+      if aln in rep or (aln1 + aln0) in rep:
+        if printed:
+          if aln in rep:
+            fOut.write('\t'.join([r, 'aln: ' + str(aln), rep[aln], 'strange-paired-end\n']))
+          else:
+            fOut.write('\t'.join([r, 'aln: ' + str(aln1 + aln0), rep[aln1 + aln0], 'strange-paired-end\n']))
+
+          dups += 1
+          printed = 0   # don't write dups twice!
+
+          # strange duplicate: save other alignments and dump it
+          if r in readsPE:
+          ###  EDIT: do not save other alignments -> causes circular bug
+          #  for h in readsPE[r]:
+          #    if not readsPE[r][h][0] or not readsPE[r][h][1]:
+          #      sys.stderr.write('Error! Incomplete PE alignment for read %s, HI %d\n' % (r, h))
+          #      sys.exit(-1)
+          #    aln0, aln1 = readsPE[r][h]
+          #    aln = aln0 + aln1
+          #    if aln not in rep:
+          #      rep[aln] = r
+            del readsPE[r]
+
+      else:
+        rep[aln] = r
+
+  print '  dups:%12d' % dups
+
+
+#########
+
+  # find dups in PE alignments
+  print 'PE reads:%10d (after %d strange dups removed)' % (len(readsPE), dups)
+  dups = 0
+  alsoStrange = 0
+  #rep = {}    # do not reset rep -- keep 
   for r in readsPE:
     printed = 1
     for h in readsPE[r]:
+      if not readsPE[r][h][0] or not readsPE[r][h][1]:
+        sys.stderr.write('Error! Incomplete PE alignment for read %s, HI %d\n' % (r, h))
+        sys.exit(-1)
       aln0, aln1 = readsPE[r][h]
       aln = aln0 + aln1
       if aln in rep:
         if printed:
-          fOut.write(r + '\n')
+          fOut.write('\t'.join([r, 'aln: ' + str(aln), rep[aln], 'paired-end\n']))
           dups += 1
           printed = 0   # don't write dups twice!
       else:
-        rep[aln] = 1
-  print '  dups:', dups
+        rep[aln] = r
+    if r in readsOdd:
+      alsoStrange += 1
+
+  print '  strange:%9d (also analyzed as strange PE reads)' % alsoStrange
+  print '  dups:%12d' % dups
 
 
 def main():
