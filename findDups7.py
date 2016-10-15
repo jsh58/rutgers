@@ -101,18 +101,19 @@ def getTag(lis, tag):
 
 def loadInfo(spl):
   '''
-  Create an Align object from a SAM record.
+  Load alignment info from a SAM record.
   '''
   flag = int(spl[1])
   chrom = spl[2]
   pos = int(spl[3])
 
-  # get offset (distance to 3' end) and tuple of splice sites
+  # get tuple of splice sites (pos-len pairs) and
+  #   offset (distance to 3' end) for rev-comp alignments
   if flag & 0x10:
     revComp = 1
     offset, ntup = parseCigarRev(spl[5])
   else:
-    revComp = 0  # may be redundant since offset will be > 0
+    revComp = 0  # may be redundant since offset will be 0
     offset = 0
     ntup = parseCigarFwd(spl[5])
 
@@ -138,10 +139,10 @@ def findDupsSE(fOut, readsSE, repSE):
   print 'SE reads:%10d' % len(readsSE)
   dups = 0
   for r in readsSE:
-    printed = 1  # boolean: has read been classified a dup? (don't count twice)
+    printed = 1  # boolean: has read not been classified a dup? (don't count twice)
     for aln in readsSE[r]:
       if aln in repSE:
-        if printed:
+        if printed and repSE[aln] != r:
           fOut.write('\t'.join([r, 'aln:' + str(aln), repSE[aln], 'single-end\n']))
           dups += 1
           printed = 0   # don't write dups twice!
@@ -166,12 +167,12 @@ def findDups(fOut, readsSE, readsPE):
         sys.exit(-1)
       aln0, aln1 = readsPE[r][h]
       if (aln0, aln1) in rep:
-        if printed:
+        if printed and rep[(aln0, aln1)] != r:
           fOut.write('\t'.join([r, 'aln:' + str((aln0, aln1)), rep[(aln0, aln1)], 'paired-end\n']))
           dups += 1
           printed = 0
       elif (aln1, aln0) in rep:
-        if printed:
+        if printed and rep[(aln1, aln0)] != r:
           fOut.write('\t'.join([r, 'aln:' + str((aln1, aln0)), rep[(aln1, aln0)], 'paired-end\n']))
           dups += 1
           printed = 0
@@ -190,8 +191,8 @@ def processSAM(f, fOut):
   '''
   Process the SAM file.
   '''
-  readsPE = {}    # dict of paired-end reads
-  readsSE = {}    # dict of single-end reads
+  readsPE = {}    # dict of paired-end alignments
+  readsSE = {}    # dict of single-end alignments
   count = dups = uniq = notSeq = 0
   for line in f:
     if line[0] == '@':
@@ -221,36 +222,35 @@ def processSAM(f, fOut):
     if not paired:
       if spl[0] not in readsSE:
         readsSE[spl[0]] = []
-      if aln in readsSE[spl[0]]:
-        sys.stderr.write('Error! Repeated alignment for read %s\n' % spl[0])
-        sys.stderr.write('  aln: ' + str(aln) + '\n')
-        sys.stderr.write(readsSE[spl[0]] + '\n')
-        sys.exit(-1)
-      readsSE[spl[0]].append(aln)  # only save if aln isn't already there
-
+      readsSE[spl[0]].append(aln)
 
     # paired-end (even if not properly paired): save to readsPE
     else:
       if spl[0] not in readsPE:
         readsPE[spl[0]] = {}
       hi = getTag(spl[11:], 'HI')  # query hit index
-      # if 'hi' is repeated -- e.g. if it is == -1 (not present), then can
-      #   consider using RNEXT and PNEXT as the surrogate 'hi' value
-      #   -- but then must use native alignment info, not 5' end for '-' alignments
+      # NOTE: if 'hi' is repeated -- e.g. if it is == -1 (not present), then
+      #   can consider using RNEXT and PNEXT as the surrogate 'hi' value
+      #   -> but then, must use native alignment info, i.e. for '-' alignments,
+      #     5' POS (raw[1]) instead of aln[1]; these alignments may be repeated,
+      #     but at least primary alignments can be matched (! 0x100)
 
       if hi not in readsPE[spl[0]]:
         readsPE[spl[0]][hi] = [() for i in range(2)]
         readsPE[spl[0]][hi][0] = aln  # just put this alignment first --
-                                      #   can put '+' alignment 1st by checking if aln[3] == '+'
+                                      #   can put '+' alignment 1st by checking aln[3]
       elif readsPE[spl[0]][hi][1]:
-        sys.stderr.write('Error! Repeated alignment for read %s, HI %s\n' % (spl[0], hi))
+        sys.stderr.write('Error! More than two alignments for ' \
+          + 'read %s, HI %s\n' % (spl[0], hi))
+        sys.stderr.write('  alns: ' + str(readsPE[spl[0]][hi]) \
+          + ',' + str(aln) + '\n')
         sys.exit(-1)
       else:
         readsPE[spl[0]][hi][1] = aln  # 2nd alignment
 
     count += 1
-    if count % 10000000 == 0:
-      print count
+    #if count % 10000000 == 0:
+    #  print count
 
   print 'Total alignments:', count
 
@@ -272,13 +272,10 @@ def main():
 
   processSAM(f, fOut)
 
-  f.close()
-  if out: fOut.close()
-
-  #sys.stderr.write('Reads: %10d\n' % count)
-  #sys.stderr.write('Unique: %9d\n' % uniq)
-  #sys.stderr.write('Dups: %11d\n' % dups)
-  #sys.stderr.write('NotSeq: %9d\n' % notSeq)
+  if f != sys.stdin:
+    f.close()
+  if out and fOut != sys.stdout:
+    fOut.close()
 
 if __name__ == '__main__':
   main()
