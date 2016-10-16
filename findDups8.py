@@ -6,6 +6,7 @@
 # Version 3: counting results, including actual seq matches
 # Version 6: producing a list of PCR duplicates
 # Version 7: specific for TopHat's output file
+# Version 8: using quality scores to rank reads
 
 import sys
 import gzip
@@ -44,6 +45,15 @@ def openWrite(filename):
     sys.stderr.write('Error! Cannot open %s for writing\n' % filename)
     sys.exit(-1)
   return f
+
+def getScore(qual):
+  '''
+  Return sum of quality scores.
+  '''
+  qualSum = 0
+  for c in qual:
+    qualSum += ord(c) - 33
+  return qualSum
 
 def parseCigarFwd(cigar):
   '''
@@ -117,6 +127,7 @@ def loadInfo(spl):
     offset = 0
     ntup = parseCigarFwd(spl[5])
 
+  # first or last segment?
   first = 0   # 0 -> first segment
               # 1 -> last segment
   if flag & 0x80:
@@ -127,31 +138,37 @@ def loadInfo(spl):
   if flag & 0x8:
     paired = 0
 
+  # primary alignment?
+  primary = 0   # 0 -> secondary/supplementary alignment
+                # 1 -> primary alignment
+  if not flag & 0x900:
+    primary = 1
+
   # ignoring 'first'
-  return (chrom, pos, offset, ntup), paired
+  return (chrom, pos, offset, ntup), paired, primary
 
 
-def findDupsSE(fOut, readsSE, repSE):
+def findDupsSE(fOut, readsSE, repSE, scoreSE):
   '''
   Find duplicates in single-end reads.
   '''
   # repSE dict already has single-end versions of PE alignments
   print 'SE reads:%10d' % len(readsSE)
   dups = 0
-  for r in readsSE:
-    printed = 1  # boolean: has read not been classified a dup? (don't count twice)
+  for r in sorted(scoreSE, key=scoreSE.get, reverse=True):
+    printed = 0  # boolean: 1 -> read classified a duplicate
     for aln in readsSE[r]:
       if aln in repSE:
-        if printed and repSE[aln] != r:
+        if not printed and repSE[aln] != r:
           fOut.write('\t'.join([r, 'aln:' + str(aln), repSE[aln], 'single-end\n']))
           dups += 1
-          printed = 0   # don't write dups twice!
+          printed = 1   # don't write dups twice!
       else:
         repSE[aln] = r
   print '  dups:%12d' % dups
 
 
-def findDups(fOut, readsSE, readsPE):
+def findDups(fOut, readsSE, readsPE, scoreSE, scorePE):
   '''
   Find duplicates in paired-end alignments.
   '''
@@ -159,23 +176,23 @@ def findDups(fOut, readsSE, readsPE):
   dups = 0
   rep = {}    # for saving PE alignments (to compare against)
   repSE = {}  # for saving each SE alignment
-  for r in readsPE:
-    printed = 1  # boolean: has read not been classified a dup? (don't count twice)
+  for r in sorted(scorePE, key=scorePE.get, reverse=True):
+    printed = 0  # boolean: 1 -> read classified a duplicate
     for h in readsPE[r]:
       if not readsPE[r][h][0] or not readsPE[r][h][1]:
         sys.stderr.write('Error! Incomplete PE alignment for read %s, HI %d\n' % (r, h))
         sys.exit(-1)
       aln0, aln1 = readsPE[r][h]
       if (aln0, aln1) in rep:
-        if printed and rep[(aln0, aln1)] != r:
+        if not printed and rep[(aln0, aln1)] != r:
           fOut.write('\t'.join([r, 'aln:' + str((aln0, aln1)), rep[(aln0, aln1)], 'paired-end\n']))
           dups += 1
-          printed = 0
+          printed = 1   # don't write dups twice!
       elif (aln1, aln0) in rep:
-        if printed and rep[(aln1, aln0)] != r:
+        if not printed and rep[(aln1, aln0)] != r:
           fOut.write('\t'.join([r, 'aln:' + str((aln1, aln0)), rep[(aln1, aln0)], 'paired-end\n']))
           dups += 1
-          printed = 0
+          printed = 1   # don't write dups twice!
       else:
         rep[(aln0, aln1)] = r
         if aln0 not in repSE:
@@ -184,7 +201,7 @@ def findDups(fOut, readsSE, readsPE):
           repSE[aln1] = r
   print '  dups:%12d' % dups
 
-  findDupsSE(fOut, readsSE, repSE)
+  findDupsSE(fOut, readsSE, repSE, scoreSE)
 
 
 def processSAM(f, fOut):
@@ -193,6 +210,8 @@ def processSAM(f, fOut):
   '''
   readsPE = {}    # dict of paired-end alignments
   readsSE = {}    # dict of single-end alignments
+  scorePE = {}    # dict of quality score sum for each pair of reads
+  scoreSE = {}    # dict of quality score sum for each read
   count = dups = uniq = notSeq = 0
   for line in f:
     if line[0] == '@':
@@ -210,7 +229,7 @@ def processSAM(f, fOut):
       continue
 
     # save alignment info
-    raw, paired = loadInfo(spl)
+    raw, paired, primary = loadInfo(spl)
     # reconfigure alignment -- for revComp alignments, move
     #   pos to 3' end (on fwd strand)
     if raw[2] > 0:
@@ -223,6 +242,8 @@ def processSAM(f, fOut):
       if spl[0] not in readsSE:
         readsSE[spl[0]] = []
       readsSE[spl[0]].append(aln)
+      if primary:
+        scoreSE[spl[0]] = getScore(spl[10])
 
     # paired-end (even if not properly paired): save to readsPE
     else:
@@ -248,13 +269,16 @@ def processSAM(f, fOut):
       else:
         readsPE[spl[0]][hi][1] = aln  # 2nd alignment
 
+      if primary:
+        scorePE[spl[0]] = scorePE.get(spl[0], 0) + getScore(spl[10])
+
     count += 1
     #if count % 10000000 == 0:
     #  print count
 
   print 'Total alignments:', count
 
-  findDups(fOut, readsSE, readsPE)
+  findDups(fOut, readsSE, readsPE, scoreSE, scorePE)
 
 
 def main():
