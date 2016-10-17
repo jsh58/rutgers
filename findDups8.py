@@ -159,12 +159,16 @@ def findDupsSE(fOut, readsSE, repSE, scoreSE):
     printed = 0  # boolean: 1 -> read classified a duplicate
     for aln in readsSE[r]:
       if aln in repSE:
-        if not printed and repSE[aln] != r:
+        #if not printed and repSE[aln] != r:
           fOut.write('\t'.join([r, 'aln:' + str(aln), repSE[aln], 'single-end\n']))
           dups += 1
           printed = 1   # don't write dups twice!
-      else:
+          break
+
+    if not printed:
+      for aln in readsSE[r]:
         repSE[aln] = r
+
   print '  dups:%12d' % dups
 
 
@@ -184,21 +188,28 @@ def findDups(fOut, readsSE, readsPE, scoreSE, scorePE):
         sys.exit(-1)
       aln0, aln1 = readsPE[r][h]
       if (aln0, aln1) in rep:
-        if not printed and rep[(aln0, aln1)] != r:
+        #if not printed and rep[(aln0, aln1)] != r:
           fOut.write('\t'.join([r, 'aln:' + str((aln0, aln1)), rep[(aln0, aln1)], 'paired-end\n']))
           dups += 1
           printed = 1   # don't write dups twice!
+          break
       elif (aln1, aln0) in rep:
-        if not printed and rep[(aln1, aln0)] != r:
+        #if not printed and rep[(aln1, aln0)] != r:
           fOut.write('\t'.join([r, 'aln:' + str((aln1, aln0)), rep[(aln1, aln0)], 'paired-end\n']))
           dups += 1
           printed = 1   # don't write dups twice!
-      else:
+          break
+
+    # save non-dup alignments
+    if not printed:
+      for h in readsPE[r]:
+        aln0, aln1 = readsPE[r][h]
         rep[(aln0, aln1)] = r
         if aln0 not in repSE:
           repSE[aln0] = r
         if aln1 not in repSE:
           repSE[aln1] = r
+
   print '  dups:%12d' % dups
 
   findDupsSE(fOut, readsSE, repSE, scoreSE)
