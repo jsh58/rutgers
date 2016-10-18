@@ -223,10 +223,9 @@ def processSAM(f, fOut):
   readsSE = {}    # dict of single-end alignments
   scorePE = {}    # dict of quality score sum for each pair of reads
   scoreSE = {}    # dict of quality score sum for each read
-  count = dups = uniq = notSeq = 0
+  count = unmap = 0
   for line in f:
     if line[0] == '@':
-      #if out: fOut.write(line)
       continue
 
     spl = line.rstrip().split('\t')
@@ -234,9 +233,11 @@ def processSAM(f, fOut):
       sys.stderr.write('Error! Poorly formatted SAM record:\n'
         + line)
       sys.exit(-1)
+    count += 1
 
     # skip if unmapped
     if int(spl[1]) & 0x4:
+      unmap += 1
       continue
 
     # save alignment info
@@ -283,14 +284,10 @@ def processSAM(f, fOut):
       if primary:
         scorePE[spl[0]] = scorePE.get(spl[0], 0) + getScore(spl[10])
 
-    count += 1
-    #if count % 10000000 == 0:
-    #  print count
-
   print 'Total alignments:', count
+  #print '  Unmapped:', unmap
 
   findDups(fOut, readsSE, readsPE, scoreSE, scorePE)
-
 
 def main():
   args = sys.argv[1:]
@@ -298,18 +295,14 @@ def main():
     print 'Usage: python %s  <SAMfile>  <out>' % sys.argv[0]
     print '  Use \'-\' for stdin/stdout'
     sys.exit(-1)
-  f = openRead(args[0])
-  fOut = None
-  out = 0
-  if len(args) > 1:
-    fOut = openWrite(args[1])
-    out = 1
+  fIn = openRead(args[0])
+  fOut = openWrite(args[1])
 
-  processSAM(f, fOut)
+  processSAM(fIn, fOut)
 
-  if f != sys.stdin:
-    f.close()
-  if out and fOut != sys.stdout:
+  if fIn != sys.stdin:
+    fIn.close()
+  if fOut != sys.stdout:
     fOut.close()
 
 if __name__ == '__main__':
