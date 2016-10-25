@@ -58,9 +58,18 @@ def getScore(qual):
 
 def parseCigarFwd(cigar):
   '''
-  Determine splice sites from CIGAR.
+  Determine start position and splice sites from CIGAR.
   '''
   ops = re.findall(r'(\d+)(\D)', cigar)
+
+  # determine actual start position of sequence
+  start = 0
+  if ops[0][1] == 'S':
+    start = - int(ops[0][0])
+  elif ops[0][1] == 'D':
+    start = int(ops[0][0])
+
+  # parse cigar
   offset = 0
   ntup = ()  # tuple of spliced lengths
   for op in ops:
@@ -74,17 +83,25 @@ def parseCigarFwd(cigar):
       sys.stderr.write('Error! Unknown Op "%s" in cigar %s\n' \
         % (op[1], cigar))
       sys.exit(-1)
-  return ntup
+  return start, ntup
 
 def parseCigarRev(cigar):
   '''
-  Determine splice sites and 3' position of
-    alignment from CIGAR.
+  Determine start position, splice sites, and
+    3' position of alignment from CIGAR.
   '''
   ops = re.findall(r'(\d+)(\D)', cigar)
+
+  # determine actual start position of sequence
+  start = 0
+  if ops[0][1] == 'S':
+    start = - int(ops[0][0])
+  elif ops[0][1] == 'D':
+    start = int(ops[0][0])
+
+  # parse cigar backwards
   offset = 0
   ntup = ()  # tuple of spliced lengths
-  # parse cigar backwards
   for op in ops[::-1]:
     if op[1] in ['M', 'D', 'N', 'S', '=', 'X']:
       if op[1] == 'N':
@@ -96,7 +113,7 @@ def parseCigarRev(cigar):
       sys.stderr.write('Error! Unknown Op "%s" in cigar %s\n' \
         % (op[1], cigar))
       sys.exit(-1)
-  return offset, ntup
+  return start, offset, ntup
 
 def getTag(lis, tag):
   '''
@@ -122,21 +139,25 @@ def loadInfo(spl):
   #   offset (distance to 3' end) for rev-comp alignments
   if flag & 0x10:
     revComp = 1
-    offset, ntup = parseCigarRev(spl[5])
+    start, offset, ntup = parseCigarRev(spl[5])
   else:
     revComp = 0  # may be redundant since offset will be 0
     offset = 0
-    ntup = parseCigarFwd(spl[5])
+    start, ntup = parseCigarFwd(spl[5])
 
   # first or last segment?
   first = 0   # 0 -> first segment
               # 1 -> last segment
   if flag & 0x80:
     first = 1
+    if flag & 0x40:
+      sys.stderr.write('Error! Linear templates with > 2 reads ' \
+        + 'are not allowed\n')
+      sys.exit(-1)
 
   # paired alignments?
   paired = 1
-  if flag & 0x8:
+  if not flag & 0x1 or flag & 0x8:
     paired = 0
 
   # primary alignment?
@@ -145,16 +166,69 @@ def loadInfo(spl):
   if not flag & 0x900:
     primary = 1
 
-  # ignoring 'first'
-  return (chrom, pos, offset, ntup), paired, primary
+  # return alignment info
+  return (chrom, pos, offset, ntup), start, revComp, \
+    first, paired, primary
 
+def processNoHI(header, first, readsPE, noHI, aln, mate):
+  '''
+  In the absence of an 'HI' tag, try to find a matching PE alignment.
+  'aln' is this alignment (RNAME, POS);
+  'mate' is the mate's alignment (RNEXT, PNEXT).
+  '''
+  if mate[0] == '=':
+    mate[0] = aln[0]
+  nextAln = (mate[0], int(mate[1]))  # tuple of mate's alignment
+  if nextAln[0] == '*' or nextAln[1] == 0:
+    sys.stderr.write('Error! Missing paired alignment ' \
+      + 'for read %s\n' % header)
+    sys.exit(-1)
+  other = (first + 1) % 2  # mate's 'first' designation
+
+  # try to find a matching alignment
+  hi = 1  # match index (0 reserved for primary alignments)
+  match = -1  # alternative match index
+  while hi in readsPE[header]:
+    if header in noHI[other] \
+        and hi in noHI[other][header] \
+        and (nextAln, aln) == noHI[other][header][hi]:
+      # alignments match!
+      if readsPE[header][hi][first]:
+        match = hi  # if already has alignment, save index and continue
+      else:
+        return hi
+    hi += 1
+
+  # for alternative match, copy readsPE alignment for new index
+  if match != -1:
+    readsPE[header][hi] = [() for i in range(2)]
+    readsPE[header][hi][other] = readsPE[header][match][other]
+
+  # no matches -- save these alignments to noHI
+  if header not in noHI[first]:
+    noHI[first][header] = {}
+  noHI[first][header][hi] = (aln, nextAln)
+  return hi
+
+def addMissing(readsPE, noHI):
+  '''
+  For PE alignments without 'HI' tags that are not matched,
+    fill in the missing alignments with the primaries.
+  '''
+  for first in range(2):
+    other = (first + 1) % 2
+    for header in noHI[first]:
+      for hi in noHI[first][header]:
+        if not readsPE[header][hi][other]:
+          # missing alignment: copy primary
+          readsPE[header][hi][other] = readsPE[header][0][other]
 
 def findDupsSE(fOut, readsSE, repSE, scoreSE):
   '''
   Find duplicates in single-end reads.
   '''
   # repSE dict already has single-end versions of PE alignments
-  print 'SE reads:%10d' % len(readsSE)
+  print 'SE-aligned reads:%10d' % len(readsSE)
   dups = 0
   for r in sorted(scoreSE, key=scoreSE.get, reverse=True):
     printed = 0  # boolean: 1 -> read classified a duplicate
@@ -170,31 +244,35 @@ def findDupsSE(fOut, readsSE, repSE, scoreSE):
       for aln in readsSE[r]:
         repSE[aln] = r
 
-  print '  dups:%12d' % dups
-
+  print '  duplicates:%14d' % dups
 
 def findDups(fOut, readsSE, readsPE, scoreSE, scorePE):
   '''
   Find duplicates in paired-end alignments.
   '''
-  print 'PE reads:%10d' % len(readsPE)
+  print 'PE-aligned reads:%10d' % len(readsPE)
   dups = 0
   rep = {}    # for saving PE alignments (to compare against)
   repSE = {}  # for saving each SE alignment
+
+  # sort by sum of quality scores
   for r in sorted(scorePE, key=scorePE.get, reverse=True):
     printed = 0  # boolean: 1 -> read classified a duplicate
     for h in readsPE[r]:
       if not readsPE[r][h][0] or not readsPE[r][h][1]:
-        sys.stderr.write('Error! Incomplete PE alignment for read %s, HI %d\n' % (r, h))
+        sys.stderr.write('Error! Incomplete PE alignment for ' \
+          + 'read %s, HI %d\n' % (r, h))
         sys.exit(-1)
       aln0, aln1 = readsPE[r][h]
       if (aln0, aln1) in rep:
-        fOut.write('\t'.join([r, 'aln:' + str((aln0, aln1)), rep[(aln0, aln1)], 'paired-end\n']))
+        fOut.write('\t'.join([r, 'aln:' + str((aln0, aln1)), \
+          rep[(aln0, aln1)], 'paired-end\n']))
         dups += 1
         printed = 1
         break
       elif (aln1, aln0) in rep:
-        fOut.write('\t'.join([r, 'aln:' + str((aln1, aln0)), rep[(aln1, aln0)], 'paired-end\n']))
+        fOut.write('\t'.join([r, 'aln:' + str((aln1, aln0)), \
+          rep[(aln1, aln0)], 'paired-end\n']))
         dups += 1
         printed = 1
         break
@@ -209,42 +287,9 @@ def findDups(fOut, readsSE, readsPE, scoreSE, scorePE):
         if aln1 not in repSE:
           repSE[aln1] = r
 
-  print '  dups:%12d' % dups
+  print '  duplicates:%14d' % dups
 
   findDupsSE(fOut, readsSE, repSE, scoreSE)
-
-
-def processNoHI(header, readsPE, noHI, aln, mate):
-  '''
-  In the absence of an 'HI' tag, try to find a matching PE alignment.
-  'aln' is this alignment (RNAME, POS);
-  'mate' is the mate's alignment (RNEXT, PNEXT).
-  '''
-  if mate[0] == '=':
-    mate[0] = aln[0]
-  nextAln = (mate[0], int(mate[1]))  # tuple of mate's alignment
-  if nextAln[0] == '*' or nextAln[1] == 0:
-    sys.stderr.write('Error! Missing paired alignment ' \
-      + 'for read %s\n' % header)
-    sys.exit(-1)
-  if header not in noHI:
-    noHI[header] = {}
-
-  # try to find a matching alignment
-  hi = 1  # start at 1, because 0 [primary alignments] were already set
-  while hi in readsPE[header]:
-    # skip if alignment already has two alignments
-    if not readsPE[header][hi][1] \
-        and hi in noHI[header] \
-        and (nextAln, aln) == noHI[header][hi]:
-      # alignments match!
-      return hi
-    hi += 1
-
-  # no matches -- save these alignments to noHI
-  noHI[header][hi] = (aln, nextAln)
-  return hi
-
 
 def processSAM(f, fOut):
   '''
@@ -254,7 +299,8 @@ def processSAM(f, fOut):
   readsSE = {}    # dict of single-end alignments
   scorePE = {}    # dict of quality score sum for each pair of reads
   scoreSE = {}    # dict of quality score sum for each read
-  noHI = {}       # dict for matching PE alignments without 'HI' tag
+  noHI = [{} for i in range(2)] # dicts for matching PE alignments
+                                #   lacking 'HI' tags
   count = unmap = 0
   for line in f:
     if line[0] == '@':
@@ -273,13 +319,13 @@ def processSAM(f, fOut):
       continue
 
     # save alignment info
-    raw, paired, primary = loadInfo(spl)
+    raw, start, revComp, first, paired, primary = loadInfo(spl)
     # reconfigure alignment -- for revComp alignments, move
     #   pos to 3' end (on fwd strand)
-    if raw[2] > 0:
-      aln = (raw[0], raw[1] + raw[2], raw[3], '-')
+    if revComp:
+      aln = (raw[0], raw[1] + start + raw[2], raw[3], '-')
     else:
-      aln = (raw[0], raw[1], raw[3], '+')
+      aln = (raw[0], raw[1] + start, raw[3], '+')
 
     # only one end aligned: save to readsSE
     if not paired:
@@ -294,44 +340,44 @@ def processSAM(f, fOut):
     else:
       if spl[0] not in readsPE:
         readsPE[spl[0]] = {}
-      hi = getTag(spl[11:], 'HI')  # query hit index
 
+      # get query hit index (to match paired alignments)
+      hi = getTag(spl[11:], 'HI')
       # if 'hi' unavailable (-1), with multiple alignments,
       #   try to find matching alignments (using noHI dict)
-      if hi == -1 and getTag(spl[11:], 'NH') != '1':
+      if hi == -1:
         if primary:
           hi = 0
         else:
-          hi = processNoHI(spl[0], readsPE, noHI, raw[0:2], spl[6:8])
+          hi = processNoHI(spl[0], first, readsPE, \
+            noHI, raw[0:2], spl[6:8])
 
       # save alignment
       if hi not in readsPE[spl[0]]:
         readsPE[spl[0]][hi] = [() for i in range(2)]
-        readsPE[spl[0]][hi][0] = aln  # just put this alignment first --
-                                      #   can put '+' alignment 1st by checking aln[3]
-      elif readsPE[spl[0]][hi][1]:
-        sys.stderr.write('Error! More than two alignments for ' \
-          + 'read %s, HI %s\n' % (spl[0], hi))
-        sys.stderr.write('  alns: ' + str(readsPE[spl[0]][hi]) \
-          + ',' + str(aln) + '\n')
+      if readsPE[spl[0]][hi][first]:
+        sys.stderr.write('Error! Multiple alignments for ' \
+          + 'read %s, R%d, HI %s\n' % (spl[0], first + 1, str(hi)) \
+          + '  alns: ' + str(readsPE[spl[0]][hi]) \
+          + ', ' + str(aln) + '\n')
         sys.exit(-1)
-      else:
-        readsPE[spl[0]][hi][1] = aln  # 2nd alignment
+      readsPE[spl[0]][hi][first] = aln
 
       # save sum of quality scores
       if primary:
         scorePE[spl[0]] = scorePE.get(spl[0], 0) + getScore(spl[10])
 
-  print 'Total alignments:', count
-  print '  Unmapped:', unmap
+  print 'Total alignments:%10d' % count
+  print '  Unmapped:%16d' % unmap
 
+  addMissing(readsPE, noHI)  # add in missing PE alignments
   findDups(fOut, readsSE, readsPE, scoreSE, scorePE)
 
 def main():
   args = sys.argv[1:]
   if len(args) < 2:
-    print 'Usage: python %s  <SAMfile>  <out>' % sys.argv[0]
-    print '  Use \'-\' for stdin/stdout'
+    sys.stderr.write('Usage: python %s  <SAMfile>  <out>\n' % sys.argv[0] \
+      + '  Use \'-\' for stdin/stdout\n')
     sys.exit(-1)
   fIn = openRead(args[0])
   fOut = openWrite(args[1])

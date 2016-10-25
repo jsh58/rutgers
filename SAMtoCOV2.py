@@ -422,11 +422,11 @@ def main():
     bedOut.close()
 
   # print summary counts
-  sys.stderr.write('Reads analyzed: %d\n' % total)
-  sys.stderr.write('  Mapped: %d\n' % mapped)
-  sys.stderr.write('  Total CpG methylation values in the reads: %d\n' % count)
-  sys.stderr.write('    Methylated: %d\n' % methCount)
-  sys.stderr.write('    Unmethylated: %d\n' % (count - methCount))
+  sys.stderr.write('Reads analyzed: %d\n' % total \
+    + '  Mapped: %d\n' % mapped \
+    + '  Total CpG methylation values in the reads: %d\n' % count \
+    + '    Methylated: %d\n' % methCount \
+    + '    Unmethylated: %d\n' % (count - methCount))
   if count:
     sys.stderr.write('    Percent methylated: %.1f%%\n' % \
       (100.0 * methCount / count))
