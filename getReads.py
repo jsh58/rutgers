@@ -1,7 +1,9 @@
 #!/usr/bin/python
 
 # JMG 10/6/16
-# Retrieve subset of reads from a SAM.
+# Exclude reads listed in a given headers.txt
+#   file (e.g. produced by findDups.py) from
+#   a SAM file.
 
 import sys
 
@@ -42,9 +44,10 @@ def openWrite(filename):
 def main():
   args = sys.argv[1:]
   if len(args) < 4:
-    print 'Usage: python getReads.py  <inSAM>  (yes|no)  <headers.txt>  <outSAM>'
-    print '  Use \'-\' for stdin/stdout'
-    print '  (yes|no)  Keep reads in headers.txt? \'yes\' or \'no\''
+    sys.stderr.write('Usage: python getReads.py  <inSAM>  ' \
+      + '(yes|no)  <headers.txt>  <outSAM>\n' \
+      + '  Use \'-\' for stdin/stdout\n' \
+      + '  (yes|no)  Keep reads in headers.txt? \'yes\' or \'no\'\n')
     sys.exit(-1)
 
   # load headers -- 1st column of file

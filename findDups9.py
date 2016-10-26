@@ -1,13 +1,34 @@
 #!/usr/bin/python
 
-# JMG 5/29/16
-# Finding putative PCR duplicates.
-# (mimicking bismark's deduplicate script)
-# Version 3: counting results, including actual seq matches
-# Version 6: producing a list of PCR duplicates
-# Version 7: specific for TopHat's output file
-# Version 8: using quality scores to rank reads
-# Version 9: handling lack of 'HI' tags to match pairs
+# JMG 5/29/16 (updated 10/26/16)
+
+# Given a SAM file, this script classifies reads that are
+#   potential PCR duplicates.
+# The determination is based on each alignment's reference
+#   name (RNAME), position (POS), position and length of
+#   gaps (e.g. splice sites, defined by the CIGAR 'N' Op),
+#   orientation ('+' or '-'), and status (paired or not).
+# A paired alignment can be a duplicate only of other
+#   paired alignments, with both alignments matching.
+#   A single alignment can be a duplicate of a paired
+#   alignment (if it matches either end) or another single
+#   alignment.  An alignment is considered 'single' if the
+#   0x1 bit of the FLAG is not set, or if the 0x8 bit is
+#   set.
+# Secondary alignments are analyzed the same as primary
+#   alignments.  A read is considered a duplicate if any
+#   of its multiple alignments is classified a duplicate.
+# The output file lists, for each duplicate, the read
+#   header (QNAME), the alignment that matched another,
+#   the 'parent' read header, and whether the match was
+#   single or paired, all tab-delimited.
+# Note that this script does not remove duplicates; it
+#   just finds them.  The script getReads.py will filter
+#   the duplicate reads from a SAM file.  So, a complete
+#   find-and-remove process would go like this:
+# $ samtools view <BAM> | python findDups.py - dups.txt;
+#   samtools view -h <BAM> | python getReads.py - no dups.txt - | \
+#   samtools view -bS - > <outBAM>
 
 import sys
 import gzip
@@ -63,6 +84,7 @@ def parseCigarFwd(cigar):
   ops = re.findall(r'(\d+)(\D)', cigar)
 
   # determine actual start position of sequence
+  #   (adjusting backwards for 'S', forwards for 'D')
   start = 0
   if ops[0][1] == 'S':
     start = - int(ops[0][0])
@@ -93,6 +115,7 @@ def parseCigarRev(cigar):
   ops = re.findall(r'(\d+)(\D)', cigar)
 
   # determine actual start position of sequence
+  #   (adjusting backwards for 'S', forwards for 'D')
   start = 0
   if ops[0][1] == 'S':
     start = - int(ops[0][0])
@@ -135,8 +158,8 @@ def loadInfo(spl):
   chrom = spl[2]
   pos = int(spl[3])
 
-  # get tuple of splice sites (pos-len pairs) and
-  #   offset (distance to 3' end) for rev-comp alignments
+  # get start site, tuple of splice sites (pos-len pairs),
+  #   and (for rev-comp alignments) distance to 3' end
   if flag & 0x10:
     revComp = 1
     start, offset, ntup = parseCigarRev(spl[5])
@@ -173,8 +196,8 @@ def loadInfo(spl):
 def processNoHI(header, first, readsPE, noHI, aln, mate):
   '''
   In the absence of an 'HI' tag, try to find a matching PE alignment.
-  'aln' is this alignment (RNAME, POS);
-  'mate' is the mate's alignment (RNEXT, PNEXT).
+    'aln' is this alignment (RNAME, POS);
+    'mate' is the mate's alignment (RNEXT, PNEXT).
   '''
   if mate[0] == '=':
     mate[0] = aln[0]
@@ -213,14 +236,15 @@ def processNoHI(header, first, readsPE, noHI, aln, mate):
 def addMissing(readsPE, noHI):
   '''
   For PE alignments without 'HI' tags that are not matched,
-    fill in the missing alignments with the primaries.
+    fill in each missing alignment with the corresponding
+    primary alignment.
   '''
   for first in range(2):
     other = (first + 1) % 2
     for header in noHI[first]:
       for hi in noHI[first][header]:
         if not readsPE[header][hi][other]:
-          # missing alignment: copy primary
+          # missing alignment: copy primary (hi=0)
           readsPE[header][hi][other] = readsPE[header][0][other]
 
 def findDupsSE(fOut, readsSE, repSE, scoreSE):
@@ -234,7 +258,9 @@ def findDupsSE(fOut, readsSE, repSE, scoreSE):
     printed = 0  # boolean: 1 -> read classified a duplicate
     for aln in readsSE[r]:
       if aln in repSE:
-        fOut.write('\t'.join([r, 'aln:' + str(aln), repSE[aln], 'single-end\n']))
+        # duplicate
+        fOut.write('\t'.join([r, 'aln:' + str(aln), \
+          repSE[aln], 'single-end\n']))
         dups += 1
         printed = 1
         break
@@ -255,7 +281,7 @@ def findDups(fOut, readsSE, readsPE, scoreSE, scorePE):
   rep = {}    # for saving PE alignments (to compare against)
   repSE = {}  # for saving each SE alignment
 
-  # sort by sum of quality scores
+  # check for duplicates, in descending order by quality scores
   for r in sorted(scorePE, key=scorePE.get, reverse=True):
     printed = 0  # boolean: 1 -> read classified a duplicate
     for h in readsPE[r]:
@@ -265,12 +291,14 @@ def findDups(fOut, readsSE, readsPE, scoreSE, scorePE):
         sys.exit(-1)
       aln0, aln1 = readsPE[r][h]
       if (aln0, aln1) in rep:
+        # duplicate
         fOut.write('\t'.join([r, 'aln:' + str((aln0, aln1)), \
           rep[(aln0, aln1)], 'paired-end\n']))
         dups += 1
         printed = 1
         break
       elif (aln1, aln0) in rep:
+        # duplicate, in reverse order
         fOut.write('\t'.join([r, 'aln:' + str((aln1, aln0)), \
           rep[(aln1, aln0)], 'paired-end\n']))
         dups += 1
@@ -289,6 +317,7 @@ def findDups(fOut, readsSE, readsPE, scoreSE, scorePE):
 
   print '  duplicates:%14d' % dups
 
+  # find single-end duplicates
   findDupsSE(fOut, readsSE, repSE, scoreSE)
 
 def processSAM(f, fOut):
@@ -370,7 +399,9 @@ def processSAM(f, fOut):
   print 'Total alignments:%10d' % count
   print '  Unmapped:%16d' % unmap
 
-  addMissing(readsPE, noHI)  # add in missing PE alignments
+  # add in missing PE alignments
+  addMissing(readsPE, noHI)
+  # find duplicates
   findDups(fOut, readsSE, readsPE, scoreSE, scorePE)
 
 def main():
