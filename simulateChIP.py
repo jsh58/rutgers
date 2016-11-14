@@ -72,7 +72,7 @@ def loadBED(fBed):
       bed[spl[3]] = (spl[0], int(spl[1]), int(spl[2]))
     else:
       i = 0
-      while 1:
+      while True:
         if i not in bed:
           bed[i] = (spl[0], int(spl[1]), int(spl[2]))
           break
@@ -84,14 +84,14 @@ def createReads(f, gen, bed, reg, length, lengthDNA, lengthRead, number):
 
   sys.stderr.write('Creating reads...\n')
 
-  randomProb = 0.01  # probability a random DNA fragment will be sequenced
-  regionProb = 0.1   # probability a fragment overlapping a region will be sequenced
+  randomProb = 0.1  # probability a random DNA fragment will be sequenced
+  regionProb = 1   # probability a fragment overlapping a region will be sequenced
 
   # simulated reads
   for i in range(number):
 
     # find a suitable fragment
-    while 1:
+    while True:
 
       # randomly choose chromosome (weighted by length)
       rand = random.random()
@@ -130,7 +130,9 @@ def createReads(f, gen, bed, reg, length, lengthDNA, lengthRead, number):
         if seq.find('N') != -1:
           continue
 
-        f.write('@read' + ' '.join([str(i), chrom, str(pos), strand]) \
+        # print fastq read
+        f.write('@read' + ' '.join([str(i), chrom, \
+          str(pos) + '-' + str(pos+lengthDNA), strand]) \
           + '\n' + seq.upper() \
           + '\n+\n' + 'I'*lengthRead + '\n')
         break
