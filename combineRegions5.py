@@ -9,10 +9,10 @@ import gzip
 import math
 
 def usage():
-  print '''Usage: python combineRegions4.py  [options]  -o <outfile>  <infile(s)>
+  print '''Usage: python combineRegions5.py  [options]  -o <outfile>  <infile(s)>
     <outfile>     Output file listing combined regions (for each: genomic
                     position [chrom, start, end], number of CpGs, and
-                    methylation fraction for each sample, tab-delimited)
+                    methylation data for each sample, tab-delimited)
     <infile(s)>   One or more files listing methylation counts at each
                     genomic position (produced by SAMtoCOV.py, or
                     coverage2cytosine from Bismark)
@@ -31,6 +31,8 @@ def usage():
     To report a particular result:
       -m <int>    Minimum total reads in a region for a sample (def. 1)
     Other:
+      -f          Report methylation fraction for each sample, rather than
+                    methylated-unmethylated counts
       -v          Run in verbose mode'''
   sys.exit(-1)
 
@@ -119,20 +121,20 @@ def splitRegion(chrom, reg, count, minCpG, minReg, \
   return total
 
 def processRegion(chrom, reg, count, minCpG, minReg, \
-    maxLen, samples, fOut):
+    maxLen, samples, fraction, fOut):
   '''
   Produce output for a given region of CpGs: a line
     containing chromosome name, start and end
     coordinates, number of CpGs, and methylation
-    fraction for each sample, all tab-delimited.
+    data for each sample, all tab-delimited.
   To print a line, the region must have at least
     <minCpG> sites, and at least one sample must have
-    at least <minReg> methylation counts.
+    at least <minReg> counts.
   Any region longer than <maxLen> will be split via
     splitRegion(), as long as <minCpG> is still
     maintained by the subregions.
-  Any sample that does not have <minReg> methylation
-    counts gets an 'NA' designation.
+  Any sample that does not have <minReg> counts gets
+    an 'NA' designation.
   '''
   if len(reg) < minCpG:
     return 0
@@ -156,9 +158,11 @@ def processRegion(chrom, reg, count, minCpG, minReg, \
       # less than minimum number of counts
       res += '\tNA'
     else:
-      # compute methylated fraction
-      res += '\t%f' % (meth / float(meth + unmeth))
-      #res += '\t%d-%d' % (meth, unmeth)  # to save actual counts
+      if fraction:
+        # compute methylated fraction
+        res += '\t%f' % (meth / float(meth + unmeth))
+      else:
+        res += '\t%d-%d' % (meth, unmeth)  # save actual counts
       flag = 1
   if flag:
     fOut.write(res + '\n')
@@ -166,7 +170,7 @@ def processRegion(chrom, reg, count, minCpG, minReg, \
   return 0
 
 def combineRegions(count, total, order, minSamples, maxDist, \
-    minCpG, minReg, maxLen, samples, fOut):
+    minCpG, minReg, maxLen, samples, fraction, fOut):
   '''
   Combine data from CpG positions that are close to each
     other. Process combined regions on the fly (via
@@ -183,14 +187,14 @@ def combineRegions(count, total, order, minSamples, maxDist, \
         # if next position is more than maxDist away,
         #   process previous genomic region
         if pos3 and loc - pos3 > maxDist:
-          printed += processRegion(chrom, reg, count, \
-            minCpG, minReg, maxLen, samples, fOut)
+          printed += processRegion(chrom, reg, count, minCpG, \
+            minReg, maxLen, samples, fraction, fOut)
           reg = []  # reset list
         reg.append(loc)
         pos3 = loc
     # process last genomic region for this chromosome
     printed += processRegion(chrom, reg, count, minCpG, \
-      minReg, maxLen, samples, fOut)
+      minReg, maxLen, samples, fraction, fOut)
   return printed
 
 def processFile(fname, minReads, count, total, order, \
@@ -245,6 +249,7 @@ def main():
   maxLen = 1000000000 # max. length of a combined region
   outfile = ''        # output file
   fIn = []            # list of input files
+  fraction = 0        # report methylated fractions option
   verbose = 0         # verbose option
 
   # Get command-line args
@@ -269,6 +274,9 @@ def main():
         outfile = args[i+1]
       elif args[i] == '-v':
         verbose = 1
+        i -= 1
+      elif args[i] == '-f':
+        fraction = 1
         i -= 1
       elif args[i] == '-h':
         usage()
@@ -311,7 +319,7 @@ def main():
   fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] \
     + samples) + '\n')
   printed = combineRegions(count, total, order, minSamples, \
-    maxDist, minCpG, minReg, maxLen, samples, fOut)
+    maxDist, minCpG, minReg, maxLen, samples, fraction, fOut)
   if verbose:
     sys.stderr.write('Regions printed: %d\n' % printed)
   if fOut != sys.stdout:
