@@ -157,12 +157,14 @@ def processRegion(chrom, reg, count, minCpG, minReg, \
     if meth + unmeth < minReg:
       # less than minimum number of counts
       res += '\tNA'
+      if not fraction:
+        res += '\tNA'
     else:
       if fraction:
         # compute methylated fraction
         res += '\t%f' % (meth / float(meth + unmeth))
       else:
-        res += '\t%d-%d' % (meth, unmeth)  # save actual counts
+        res += '\t%d\t%d' % (meth + unmeth, meth)  # actual counts
       flag = 1
   if flag:
     fOut.write(res + '\n')
@@ -196,6 +198,19 @@ def combineRegions(count, total, order, minSamples, maxDist, \
     printed += processRegion(chrom, reg, count, minCpG, \
       minReg, maxLen, samples, fraction, fOut)
   return printed
+
+def writeHeader(fOut, samples, fraction):
+  '''
+  Write the header for the output file.
+  '''
+  fOut.write('\t'.join(['chr', 'start', 'end', 'CpG']))
+  if fraction:
+    fOut.write('\t' + '\t'.join(samples))
+  else:
+    for sample in samples:
+      for letter in ['N', 'X']:
+        fOut.write('\t' + sample + '-' + letter)
+  fOut.write('\n')
 
 def processFile(fname, minReads, count, total, order, \
     samples):
@@ -316,8 +331,7 @@ def main():
   # produce output
   if verbose:
     sys.stderr.write('Combining regions and producing output\n')
-  fOut.write('\t'.join(['chr', 'start', 'end', 'CpG'] \
-    + samples) + '\n')
+  writeHeader(fOut, samples, fraction)
   printed = combineRegions(count, total, order, minSamples, \
     maxDist, minCpG, minReg, maxLen, samples, fraction, fOut)
   if verbose:
