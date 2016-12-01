@@ -219,10 +219,12 @@ def processFile(fname, minReads, count, total, order, \
   '''
   f = openRead(fname)
 
-  # save sample name
+  # save sample name (basename of file)
   sample = fname.split('/')[-1].split('.')[0]
   while sample in samples:
     sample += '-'
+  if sample[0] == '-':
+    sample = '_' + sample[1:]  # change leading '-'
   samples.append(sample)
 
   # load counts from file
