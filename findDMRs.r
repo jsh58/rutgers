@@ -28,11 +28,19 @@ usage <- function() {
   q()
 }
 
+# default args/parameters
+infile <- outfile <- groups <- NULL
+names <- list()
+minCpG <- 1        # min. number of CpGs
+minDiff <- 0       # min. methylation difference
+maxPval <- 1       # max. p-value
+up <- down <- 0    # report only hyper- or hypo-methylated results
 
 # get CL args
 args <- commandArgs(trailingOnly=T)
-infile <- outfile <- groups <- NULL
-names <- list()
+if (length(args) < 4) {
+  usage()
+}
 i <- 1
 while (i < length(args) + 1) {
   if (substr(args[i], 1, 1) == '-' && i < length(args)) {
@@ -42,6 +50,12 @@ while (i < length(args) + 1) {
       outfile <- args[i + 1]
     } else if (args[i] == '-n') {
       groups <- strsplit(args[i + 1], '[ ,]')[[1]]
+    } else if (args[i] == '-c') {
+      minCpG <- args[i + 1]
+    } else if (args[i] == '-d') {
+      minDiff <- args[i + 1]
+    } else if (args[i] == '-p') {
+      maxPval <- args[i + 1]
     } else if (args[i] == '-h') {
       usage()
     }
@@ -73,8 +87,10 @@ for (i in 1:length(names)) {
 
 # load data, and reformat to meet the DSS expectations
 library(DSS)
-cat('Loading data from', infile, '\n')
-data <- read.csv(infile, sep='\t', header=T, check.names=F)
+cat('Loading methylation data from', infile, '\n')
+data <- read.csv(infile, sep='\t', header=T, check.names=F,
+  stringsAsFactors=F)
+row.names(data) <- paste(data$chr, data$start, sep='_')
 
 # determine columns for samples
 idx <- list()
@@ -124,12 +140,70 @@ for (i in names(samples)) {
 
 bsdata <- makeBSseqData(frames, names(frames))
 
-# perform DML pairwise test
+# perform DML pairwise tests
+dmls <- list()
 for (i in 1:(length(samples)-1)) {
+  dmls[[ names(samples)[i] ]] <- list()
   for (j in (i+1):length(samples)) {
     cat('Comparing group "', names(samples)[i],
       '" to group "', names(samples)[j], '"\n', sep='')
     dml <- DMLtest(bsdata, group1=samples[[ i ]], group2=samples[[ j ]])
-    write.table(dml, outfile, sep='\t', quote=F, row.names=F, append=T)
+    row.names(dml) <- paste(dml$chr, dml$pos, sep='_')
+    #write.table(dml, outfile, sep='\t', quote=F, row.names=F, append=T)
+    dmls[[ names(samples)[i] ]][[ names(samples)[j] ]] <- dml
+    #break
+  }
+  #break
+}
+
+# write output header
+header <- colnames(data)[1:4]
+for (i in names(samples)) {
+  header <- c(header, paste(i, 'mu', sep=':'))
+}
+for (i in names(dmls)) {
+  for (j in names(dmls[[ i ]])) {
+    comp <- paste(i, j, sep='->')
+    for (val in c('diff', 'pval')) {
+      header <- c(header, paste(comp, val, sep=':'))
+    }
+  }
+}
+cat(header, file=outfile, sep='\t')
+cat('\n', file=outfile, append=T)
+
+# write output results
+#for (key in head(row.names(data), n=3)) {
+for (key in row.names(data)) {
+  if (data[key, 'CpG'] < minCpG) {
+    next
+  }
+  valid <- F
+  res <- c()
+  mus <- list()
+  for (i in names(dmls)) {
+    for (j in names(dmls[[ i ]])) {
+      mus[[ i ]] <- c(mus[[ i ]], dmls[[ i ]][[ j ]][ key, 'mu1' ])
+      mus[[ j ]] <- c(mus[[ j ]], dmls[[ i ]][[ j ]][ key, 'mu2' ])
+      diff <- dmls[[ i ]][[ j ]][ key, 'diff' ]
+      pval <- dmls[[ i ]][[ j ]][ key, 'pval' ]
+      if (! is.na(diff) && diff >= minDiff
+          && ! is.na(pval) && pval <= maxPval) {
+        valid <- T
+      }
+      res <- c(res, -diff, pval)
+      #cat(i, j, key, diff, pval)
+      #print(dmls[[ i ]][[ j ]][key,])
+    }
+  }
+  if (valid) {
+    # average mu values for each group
+    mu <- c()
+    for (i in names(samples)) {
+      mu <- c(mu, mean(mus[[ i ]]))
+    }
+    cat(unlist(data[key, 1:4], use.names=F), mu, res,
+      file=outfile, sep='\t', append=T)
+    cat('\n', file=outfile, append=T)
   }
 }
