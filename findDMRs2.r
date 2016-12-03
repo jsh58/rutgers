@@ -90,7 +90,7 @@ library(DSS)
 cat('Loading methylation data from', infile, '\n')
 data <- read.csv(infile, sep='\t', header=T, check.names=F,
   stringsAsFactors=F)
-row.names(data) <- paste(data$chr, data$start, sep='_')
+#row.names(data) <- paste(data$chr, data$start, sep='_')
 
 # determine columns for samples
 idx <- list()
@@ -140,25 +140,85 @@ for (i in names(samples)) {
 
 
 # perform DML pairwise tests using DSS
+Sys.time()
 bsdata <- makeBSseqData(frames, names(frames))
-dmls <- list()
+res <- data[,1:4]  # results table
 for (i in 1:(length(samples)-1)) {
-  dmls[[ names(samples)[i] ]] <- list()
   for (j in (i+1):length(samples)) {
+
+    # perform DML test
     cat('Comparing group "', names(samples)[i],
       '" to group "', names(samples)[j], '"\n', sep='')
     dml <- DMLtest(bsdata, group1=samples[[ i ]], group2=samples[[ j ]])
-    row.names(dml) <- paste(dml$chr, dml$pos, sep='_')
-    #write.table(dml, outfile, sep='\t', quote=F, row.names=F, append=T)
-    dmls[[ names(samples)[i] ]][[ names(samples)[j] ]] <- dml
-    #break
+
+    # add results to res
+#    res <- transform(merge(res, dml[, 3:ncol(dml)], by=0, all.x=T),
+#      row.names=Row.names, Row.names=NULL)
+    start <- ncol(res) + 1
+    res <- transform(merge(res, dml,
+      by.x=c('chr', 'start'), by.y=c('chr', 'pos'),
+      all.x=T))
+
+    # add groups to column names
+    comp <- paste(names(samples)[i], names(samples)[j], sep='->')
+    for (k in start:ncol(res)) {
+      col <- colnames(res)[k]
+      if (substr(col, nchar(col), nchar(col)) == '1') {
+        colnames(res)[k] <- paste(names(samples)[i], substr(col, 1, nchar(col)-1), sep=':')
+      } else if (substr(col, nchar(col), nchar(col)) == '2') {
+        colnames(res)[k] <- paste(names(samples)[j], substr(col, 1, nchar(col)-1), sep=':')
+      } else {
+        colnames(res)[k] <- paste(comp, col, sep=':')
+      }
+    }
+
   }
   #break
 }
 
+# write output results
+write.table(res, outfile, sep='\t', quote=F, row.names=F)
+Sys.time()
+stop()
+
+###################################################################
+
+
 # write output header
 Sys.time()
 cat('Producing output file', outfile, '\n')
+for (i in names(dmls)) {
+  for (j in names(dmls[[ i ]])) {
+
+    # fix column names
+    cols <- ncol(dmls[[ i ]][[ j ]])
+#print(head(dmls[[i]][[j]]))
+#print(cols)
+#stop()
+    for (k in 1:(ncol(res) - cols)) {
+      idx <- ncol(res) - cols - 1 + k
+      col <- colnames(res)[idx]
+      if (substr(col, nchar(col), nchar(col)) == '1') {
+      #if (k % 5 == 1) {
+        colnames(res)[idx] <- paste(i, substr(col, 1, nchar(col)-1), sep=':')
+      #} else if (k % 5 == 2) {
+      } else if (substr(col, nchar(col), nchar(col)) == '2') {
+        colnames(res)[idx] <- paste(j, substr(col, 1, nchar(col)-1), sep=':')
+      } else {
+        colnames(res)[idx] <- paste(comp, col, sep=':')
+      }
+    }
+#print(colnames(data))
+print(head(res))
+stop()
+  }
+}
+print(head(data))
+Sys.time()
+stop()
+
+
+
 header <- colnames(data)[1:4]
 for (i in names(samples)) {
   header <- c(header, paste(i, 'mu', sep=':'))
@@ -171,12 +231,14 @@ for (i in names(dmls)) {
     }
   }
 }
-cat(header, file=outfile, sep='\t')
-cat('\n', file=outfile, append=T)
+resMat <- matrix()
+colnames(resMat, header)
+#cat(header, file=outfile, sep='\t')
+#cat('\n', file=outfile, append=T)
 
 # write output results
-#for (key in head(row.names(data), n=3)) {
-for (key in row.names(data)) {
+for (key in head(row.names(data), n=3)) {
+#for (key in row.names(data)) {
   if (data[key, 'CpG'] < minCpG) {
     next
   }
@@ -204,10 +266,11 @@ for (key in row.names(data)) {
     for (i in names(samples)) {
       mu <- c(mu, mean(mus[[ i ]], na.rm=T))
     }
-    cat(unlist(data[key, 1:4], use.names=F), mu, res,
-      file=outfile, sep='\t', append=T)
-    cat('\n', file=outfile, append=T)
+    rbind(resMat, c(unlist(data[key, 1:4], use.names=F), mu, res))
+    #cat(unlist(data[key, 1:4], use.names=F), mu, res,
+    #  file=outfile, sep='\t', append=T)
+    #cat('\n', file=outfile, append=T)
   }
 }
+write.table(resMat, outfile, sep='\t', quote=F, row.names=F)
 Sys.time()
-# producing output file this way takes 61min
