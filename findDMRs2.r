@@ -11,7 +11,14 @@ usage <- function() {
     '                   (output from combineRegions5.py)                    \n',
     '  Options:                                                             \n',
     '    -n <str>     Comma-separated list of group names (in the same      \n',
-    '                   order as the <groupLists>)                          \n',
+    '                   order as the <groupLists>; def. group names are     \n',
+    '                   constructed from sample names joined by "_")        \n',
+    '    -x <str>     Comma-separated list of column names in <input> to    \n',
+    '                   copy to <output>, in addition to the default        \n',
+    '                   ("chr", "start", "end", "CpG")                      \n',
+    '    -s <str>     Comma-separated list of column names in DSS output    \n',
+    '                   to copy to <output>, in addition to the default     \n',
+    '                   ("mu", "diff", "pval")                              \n',
     '    -c <int>     Minimum number of CpGs in a region (def. 1)           \n',
     '    -d <float>   Minimum methylation difference between sample groups  \n',
     '                   ([0-1]; def. 0 [all results reported])              \n',
@@ -35,6 +42,8 @@ minCpG <- 1        # min. number of CpGs
 minDiff <- 0       # min. methylation difference
 maxPval <- 1       # max. p-value
 up <- down <- 0    # report only hyper- or hypo-methylated results
+keep <- c('chr', 'start', 'end', 'CpG')  # columns of input to keep
+dss <- c('chr', 'pos', 'mu', 'diff', 'pval') # columns of DSS output to keep
 
 # get CL args
 args <- commandArgs(trailingOnly=T)
@@ -50,6 +59,10 @@ while (i < length(args) + 1) {
       outfile <- args[i + 1]
     } else if (args[i] == '-n') {
       groups <- strsplit(args[i + 1], '[ ,]')[[1]]
+    } else if (args[i] == '-x') {
+      keep <- c(keep, strsplit(args[i + 1], '[ ,]')[[1]])
+    } else if (args[i] == '-s') {
+      dss <- c(dss, strsplit(args[i + 1], '[ ,]')[[1]])
     } else if (args[i] == '-c') {
       minCpG <- args[i + 1]
     } else if (args[i] == '-d') {
@@ -102,8 +115,9 @@ for (i in names(samples)) {
 }
 for (i in names(samples)) {
   for (j in 1:length(samples[[ i ]])) {
-    for (k in 5:ncol(data)) {
+    for (k in 1:ncol(data)) {
       spl <- strsplit(colnames(data)[k], '-')[[1]]
+      if (length(spl) < 2) { next }
       if (spl[-length(spl)] == samples[[ i ]][ j ]) {
         if (spl[length(spl)] == 'N') {
           idx[[ 'N' ]][[ i ]][ j ] <- k
@@ -141,8 +155,8 @@ for (i in names(samples)) {
 
 # perform DML pairwise tests using DSS
 Sys.time()
+res <- data[,keep]  # results table
 bsdata <- makeBSseqData(frames, names(frames))
-res <- data[,1:4]  # results table
 for (i in 1:(length(samples)-1)) {
   for (j in (i+1):length(samples)) {
 
@@ -151,16 +165,23 @@ for (i in 1:(length(samples)-1)) {
       '" to group "', names(samples)[j], '"\n', sep='')
     dml <- DMLtest(bsdata, group1=samples[[ i ]], group2=samples[[ j ]])
 
+    # remove extraneous columns
+    for (col in colnames(dml)) {
+      if (! col %in% dss && ! substr(col, 1, nchar(col)-1) %in% dss) {
+        dml[, col] <- NULL
+      }
+    }
+
     # add results to res
 #    res <- transform(merge(res, dml[, 3:ncol(dml)], by=0, all.x=T),
 #      row.names=Row.names, Row.names=NULL)
     start <- ncol(res) + 1
-    res <- transform(merge(res, dml,
+    res <- suppressWarnings( merge(res, dml,
       by.x=c('chr', 'start'), by.y=c('chr', 'pos'),
-      all.x=T))
+      all.x=T) )
 
     # add groups to column names
-    comp <- paste(names(samples)[i], names(samples)[j], sep='->')
+    comp <- paste(names(samples)[j], names(samples)[i], sep='->')
     for (k in start:ncol(res)) {
       col <- colnames(res)[k]
       if (substr(col, nchar(col), nchar(col)) == '1') {
@@ -176,10 +197,41 @@ for (i in 1:(length(samples)-1)) {
   #break
 }
 
+# for repeated columns, average the values
+repCols <- c()
+sampleCols <- c()
+groupCols <- c()
+for (i in 1:(ncol(res) - 1)) {
+  if (i %in% repCols) { next }
+  repNow <- c(i)
+  for (j in (i + 1):ncol(res)) {
+    if (colnames(res)[i] == colnames(res)[j]) {
+      repNow <- c(repNow, j)
+    }
+  }
+  if (length(repNow) > 1) {
+    res[, i] <- rowMeans(res[, repNow], na.rm=T)
+    #cbind(res, rowMeans(res[, repNow], na.rm=T))
+    repCols <- c(repCols, repNow)
+    sampleCols <- c(sampleCols, colnames(res)[i])
+  } else if (! colnames(res)[i] %in% keep) {
+    groupCols <- c(groupCols, colnames(res)[i])
+  }
+}
+# reorder and remove extraneous columns
+res <- res[, c(keep, sampleCols, groupCols)]
+
 # write output results
 write.table(res, outfile, sep='\t', quote=F, row.names=F)
 Sys.time()
 stop()
+
+# determine which rows are valid
+#validRows <- which(res
+#      if (! is.na(diff) && abs(diff) >= minDiff
+#          && ! is.na(pval) && pval <= maxPval) {
+#        valid <- T
+#      }
 
 ###################################################################
 
