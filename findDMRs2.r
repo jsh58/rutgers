@@ -23,6 +23,8 @@ usage <- function() {
     '    -d <float>   Minimum methylation difference between sample groups  \n',
     '                   ([0-1]; def. 0 [all results reported])              \n',
     '    -p <float>   Maximum p-value ([0-1]; def. 1 [all results reported])\n',
+    '    -q <float>   Maximum q-value ([0-1]; def. 1 [all results reported])\n',
+    '                   ("fdr" automatically added to -s list)              \n',
 #    -up          Report only regions hypermethylated in later group
 #    -down        Report only regions hypomethylated in later group
 #    -dna         Report regions whose diff is 'NA' (occurs when one
@@ -41,6 +43,7 @@ names <- list()
 minCpG <- 1        # min. number of CpGs
 minDiff <- 0       # min. methylation difference
 maxPval <- 1       # max. p-value
+maxQval <- 1       # max. q-value (fdr)
 up <- down <- 0    # report only hyper- or hypo-methylated results
 keep <- c('chr', 'start', 'end', 'CpG')  # columns of input to keep
 dss <- c('chr', 'pos', 'mu', 'diff', 'pval') # columns of DSS output to keep
@@ -64,15 +67,23 @@ while (i < length(args) + 1) {
     } else if (args[i] == '-s') {
       dss <- c(dss, strsplit(args[i + 1], '[ ,]')[[1]])
     } else if (args[i] == '-c') {
-      minCpG <- args[i + 1]
+      minCpG <- as.integer(args[i + 1])
     } else if (args[i] == '-d') {
-      minDiff <- args[i + 1]
+      minDiff <- as.double(args[i + 1])
     } else if (args[i] == '-p') {
-      maxPval <- args[i + 1]
+      maxPval <- as.double(args[i + 1])
+    } else if (args[i] == '-q') {
+      maxQval <- as.double(args[i + 1])
+      dss <- c(dss, 'fdr')
     } else if (args[i] == '-h') {
+      usage()
+    } else {
+      cat('Error! Unknown parameter:', args[i], '\n')
       usage()
     }
     i <- i + 1
+  } else if (args[i] == '-h') {
+    usage()
   } else {
     names <- c(names, strsplit(args[i], '[ ,]'))
   }
@@ -86,6 +97,8 @@ if (length(names) < 2) {
   cat('Error! Must specify at least two groups of samples\n')
   usage()
 }
+keep <- unique(keep)
+dss <- unique(dss)
 
 # group samples into a named list
 samples <- list()
@@ -94,6 +107,9 @@ for (i in 1:length(names)) {
     group <- groups[i]
   } else {
     group <- paste(names[i][[1]], collapse='_')
+  }
+  if (group %in% names(samples)) {
+    stop('Duplicated group name: ', group)
   }
   samples[[ group ]] <- names[i][[1]]
 }
@@ -151,7 +167,7 @@ for (i in names(samples)) {
 Sys.time()
 bsdata <- makeBSseqData(frames, names(frames))
 res <- data[, keep]  # results table
-diffCols <- pvalCols <- c()
+comps <- c()  # group comparison strings
 for (i in 1:(length(samples)-1)) {
   for (j in (i+1):length(samples)) {
 
@@ -174,7 +190,7 @@ for (i in 1:(length(samples)-1)) {
       all.x=T) )
 
     # add groups to column names
-    comp <- paste(names(samples)[j], names(samples)[i], sep='->')
+    comp <- paste(names(samples)[i], names(samples)[j], sep='->')
     for (k in start:ncol(res)) {
       col <- colnames(res)[k]
       if (substr(col, nchar(col), nchar(col)) == '1') {
@@ -187,8 +203,16 @@ for (i in 1:(length(samples)-1)) {
         colnames(res)[k] <- paste(comp, col, sep=':')
       }
     }
+    comps <- c(comps, comp)
 
   }
+}
+
+# remove regions without min. number of CpG sites
+Sys.time()
+cat('Filtering results\n')
+if (minCpG > 1) {
+  res <- res[which(res$CpG >= minCpG), ]
 }
 
 # for repeated columns, average the values
@@ -219,124 +243,49 @@ for (i in 1:ncol(res)) {
 }
 res <- res[, c(keep, sampleCols, groupCols)]
 
-# determine which rows are valid
-mat <- matrix(T, nrow=nrow(res), 3)
-if (minCpG > 1) {
-  mat[, 1] <- res[, 'CpG'] >= minCpG
-}
-if (minDiff > 0) {
-  cols <- grep(':diff$', colnames(res), value=T)
-  if (length(cols) > 1) {
-    mat[, 2] <- rowSums(abs(res[, cols]) >= minDiff, na.rm=T) > 0
-  } else {
-    mat[, 2] <- ! is.na(res[, cols]) & abs(res[, cols]) >= minDiff
+# determine which rows are valid -- need only one
+#   comparison to meet threshold(s)
+rows <- rep(T, nrow(res))
+for (n in 1:nrow(res)) {
+  valid <- T
+  for (comp in comps) {
+    diff <- res[n, paste(comp, 'diff', sep=':')]
+    if (is.na(diff) || abs(diff) < minDiff) {
+      valid <- F
+      next
+    }
+    pval <- res[n, paste(comp, 'pval', sep=':')]
+    if (is.na(pval) || pval > maxPval) {
+      valid <- F
+      next
+    }
+    if (maxQval < 1) {
+      qval <- res[n, paste(comp, 'fdr', sep=':')]
+      if (is.na(qval) || qval > maxQval) {
+        valid <- F
+        next
+      }
+    }
+    valid <- T
+    break
+  }
+  if (! valid) {
+    rows[n] <- F
   }
 }
-if (maxPval < 1) {
-  cols <- grep(':pval$', colnames(res), value=T)
-  mat[, 3] <- rowSums(abs(res[, cols]) <= maxPval, na.rm=T) > 0
-}
-print(head(res))
-print(head(mat))
-stop()
 
 # write output results
-write.table(res, outfile, sep='\t', quote=F, row.names=F)
-#write.table(format(res, digits=7, scientific=F), outfile, sep='\t', quote=F, row.names=F)
-Sys.time()
-stop()
-
-
-###################################################################
-
-
-# write output header
 Sys.time()
 cat('Producing output file', outfile, '\n')
-for (i in names(dmls)) {
-  for (j in names(dmls[[ i ]])) {
-
-    # fix column names
-    cols <- ncol(dmls[[ i ]][[ j ]])
-#print(head(dmls[[i]][[j]]))
-#print(cols)
-#stop()
-    for (k in 1:(ncol(res) - cols)) {
-      idx <- ncol(res) - cols - 1 + k
-      col <- colnames(res)[idx]
-      if (substr(col, nchar(col), nchar(col)) == '1') {
-      #if (k % 5 == 1) {
-        colnames(res)[idx] <- paste(i, substr(col, 1, nchar(col)-1), sep=':')
-      #} else if (k % 5 == 2) {
-      } else if (substr(col, nchar(col), nchar(col)) == '2') {
-        colnames(res)[idx] <- paste(j, substr(col, 1, nchar(col)-1), sep=':')
-      } else {
-        colnames(res)[idx] <- paste(comp, col, sep=':')
-      }
-    }
-#print(colnames(data))
-print(head(res))
-stop()
+options(scipen=999)
+for (col in c(sampleCols, groupCols)) {
+  # limit results to 7 digits; reverse sign on diffs
+  spl <- strsplit(col, ':')[[1]]
+  if (spl[length(spl)] == 'diff') {
+    res[, col] <- -round(res[, col], digits=7)
+  } else {
+    res[, col] <- round(res[, col], digits=7)
   }
 }
-print(head(data))
-Sys.time()
-stop()
-
-
-
-header <- colnames(data)[1:4]
-for (i in names(samples)) {
-  header <- c(header, paste(i, 'mu', sep=':'))
-}
-for (i in names(dmls)) {
-  for (j in names(dmls[[ i ]])) {
-    comp <- paste(i, j, sep='->')
-    for (val in c('diff', 'pval')) {
-      header <- c(header, paste(comp, val, sep=':'))
-    }
-  }
-}
-resMat <- matrix()
-colnames(resMat, header)
-#cat(header, file=outfile, sep='\t')
-#cat('\n', file=outfile, append=T)
-
-# write output results
-for (key in head(row.names(data), n=3)) {
-#for (key in row.names(data)) {
-  if (data[key, 'CpG'] < minCpG) {
-    next
-  }
-  valid <- F
-  res <- c()
-  mus <- list()
-  for (i in names(dmls)) {
-    for (j in names(dmls[[ i ]])) {
-      mus[[ i ]] <- c(mus[[ i ]], dmls[[ i ]][[ j ]][ key, 'mu1' ])
-      mus[[ j ]] <- c(mus[[ j ]], dmls[[ i ]][[ j ]][ key, 'mu2' ])
-      diff <- dmls[[ i ]][[ j ]][ key, 'diff' ]
-      pval <- dmls[[ i ]][[ j ]][ key, 'pval' ]
-      if (! is.na(diff) && abs(diff) >= minDiff
-          && ! is.na(pval) && pval <= maxPval) {
-        valid <- T
-      }
-      res <- c(res, -diff, pval)
-      #cat(i, j, key, diff, pval)
-      #print(dmls[[ i ]][[ j ]][key,])
-    }
-  }
-  if (valid) {
-    # average mu values for each group
-    mu <- c()
-    for (i in names(samples)) {
-      mu <- c(mu, mean(mus[[ i ]], na.rm=T))
-    }
-    rbind(resMat, c(unlist(data[key, 1:4], use.names=F), mu, res))
-    #cat(unlist(data[key, 1:4], use.names=F), mu, res,
-    #  file=outfile, sep='\t', append=T)
-    #cat('\n', file=outfile, append=T)
-  }
-}
-write.table(resMat, outfile, sep='\t', quote=F, row.names=F)
+write.table(res[rows, ], outfile, sep='\t', quote=F, row.names=F)
 Sys.time()
