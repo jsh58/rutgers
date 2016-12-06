@@ -99,11 +99,11 @@ for (i in 1:length(names)) {
 }
 
 # load data, and reformat to meet the DSS expectations
-library(DSS)
+cat('Loading DSS package\n')
+suppressMessages(library(DSS))
 cat('Loading methylation data from', infile, '\n')
 data <- read.csv(infile, sep='\t', header=T, check.names=F,
   stringsAsFactors=F)
-#row.names(data) <- paste(data$chr, data$start, sep='_')
 
 # determine columns for samples
 idx <- list()
@@ -146,17 +146,12 @@ for (i in names(samples)) {
     frames[[ samples[[ i ]][ j ] ]] <- tab
   }
 }
-#for (l in 1:length(frames)) {
-#  print(names(frames[l]))
-#  print(head(frames[[names(frames)[l]]]))
-#}
-#stop()
-
 
 # perform DML pairwise tests using DSS
 Sys.time()
-res <- data[,keep]  # results table
 bsdata <- makeBSseqData(frames, names(frames))
+res <- data[, keep]  # results table
+diffCols <- pvalCols <- c()
 for (i in 1:(length(samples)-1)) {
   for (j in (i+1):length(samples)) {
 
@@ -173,8 +168,6 @@ for (i in 1:(length(samples)-1)) {
     }
 
     # add results to res
-#    res <- transform(merge(res, dml[, 3:ncol(dml)], by=0, all.x=T),
-#      row.names=Row.names, Row.names=NULL)
     start <- ncol(res) + 1
     res <- suppressWarnings( merge(res, dml,
       by.x=c('chr', 'start'), by.y=c('chr', 'pos'),
@@ -185,53 +178,74 @@ for (i in 1:(length(samples)-1)) {
     for (k in start:ncol(res)) {
       col <- colnames(res)[k]
       if (substr(col, nchar(col), nchar(col)) == '1') {
-        colnames(res)[k] <- paste(names(samples)[i], substr(col, 1, nchar(col)-1), sep=':')
+        colnames(res)[k] <- paste(names(samples)[i],
+          substr(col, 1, nchar(col)-1), sep=':')
       } else if (substr(col, nchar(col), nchar(col)) == '2') {
-        colnames(res)[k] <- paste(names(samples)[j], substr(col, 1, nchar(col)-1), sep=':')
+        colnames(res)[k] <- paste(names(samples)[j],
+          substr(col, 1, nchar(col)-1), sep=':')
       } else {
         colnames(res)[k] <- paste(comp, col, sep=':')
       }
     }
 
   }
-  #break
 }
 
 # for repeated columns, average the values
 repCols <- c()
 sampleCols <- c()
 groupCols <- c()
-for (i in 1:(ncol(res) - 1)) {
+for (i in 1:ncol(res)) {
   if (i %in% repCols) { next }
+
+  # find duplicated columns
   repNow <- c(i)
-  for (j in (i + 1):ncol(res)) {
-    if (colnames(res)[i] == colnames(res)[j]) {
-      repNow <- c(repNow, j)
+  if (i < ncol(res)) {
+    for (j in (i + 1):ncol(res)) {
+      if (colnames(res)[i] == colnames(res)[j]) {
+        repNow <- c(repNow, j)
+      }
     }
   }
+
+  # average duplicates
   if (length(repNow) > 1) {
     res[, i] <- rowMeans(res[, repNow], na.rm=T)
-    #cbind(res, rowMeans(res[, repNow], na.rm=T))
     repCols <- c(repCols, repNow)
     sampleCols <- c(sampleCols, colnames(res)[i])
   } else if (! colnames(res)[i] %in% keep) {
     groupCols <- c(groupCols, colnames(res)[i])
   }
 }
-# reorder and remove extraneous columns
 res <- res[, c(keep, sampleCols, groupCols)]
+
+# determine which rows are valid
+mat <- matrix(T, nrow=nrow(res), 3)
+if (minCpG > 1) {
+  mat[, 1] <- res[, 'CpG'] >= minCpG
+}
+if (minDiff > 0) {
+  cols <- grep(':diff$', colnames(res), value=T)
+  if (length(cols) > 1) {
+    mat[, 2] <- rowSums(abs(res[, cols]) >= minDiff, na.rm=T) > 0
+  } else {
+    mat[, 2] <- ! is.na(res[, cols]) & abs(res[, cols]) >= minDiff
+  }
+}
+if (maxPval < 1) {
+  cols <- grep(':pval$', colnames(res), value=T)
+  mat[, 3] <- rowSums(abs(res[, cols]) <= maxPval, na.rm=T) > 0
+}
+print(head(res))
+print(head(mat))
+stop()
 
 # write output results
 write.table(res, outfile, sep='\t', quote=F, row.names=F)
+#write.table(format(res, digits=7, scientific=F), outfile, sep='\t', quote=F, row.names=F)
 Sys.time()
 stop()
 
-# determine which rows are valid
-#validRows <- which(res
-#      if (! is.na(diff) && abs(diff) >= minDiff
-#          && ! is.na(pval) && pval <= maxPval) {
-#        valid <- T
-#      }
 
 ###################################################################
 
