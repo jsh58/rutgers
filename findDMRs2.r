@@ -41,7 +41,7 @@ usage <- function() {
 
 # default args/parameters
 infile <- outfile <- groups <- NULL
-names <- list()
+names <- list()        # list of sample names
 minCpG <- 1            # min. number of CpGs
 minDiff <- 0           # min. methylation difference
 maxPval <- 1           # max. p-value
@@ -52,7 +52,7 @@ dss <- c('chr', 'pos', 'mu', 'diff', 'pval') # columns of DSS output to keep
 
 # get CL args
 args <- commandArgs(trailingOnly=T)
-if (length(args) < 4) {
+if (length(args) < 6) {
   usage()
 }
 i <- 1
@@ -100,6 +100,8 @@ while (i < length(args) + 1) {
   }
   i <- i + 1
 }
+
+# check for errors, repeated columns
 if (is.null(infile) || is.null(outfile)) {
   cat('Error! Must specify input and output files\n')
   usage()
@@ -125,12 +127,49 @@ for (i in 1:length(names)) {
   samples[[ group ]] <- names[i][[1]]
 }
 
-# load data, and reformat to meet the DSS expectations
+# load DSS
 cat('Loading DSS package\n')
 suppressMessages(library(DSS))
+
+# load data
 cat('Loading methylation data from', infile, '\n')
-data <- read.csv(infile, sep='\t', header=T, check.names=F,
-  stringsAsFactors=F)
+data <- read.csv(infile, sep='\t', header=T, check.names=F)
+for (k in keep) {
+  if (! k %in% colnames(data)) {
+    stop('Missing column in input file ', infile, ': ', k, '\n')
+  }
+}
+if (colnames(data)[1] != 'chr') {
+  stop('Improperly formatted input file ', infile, ':\n',
+    '  Must have "chr" as first column\n')
+}
+
+# sort chromosome names by number/letter
+level <- levels(data$chr)
+intChr <- strChr <- intLev <- strLev <- c()
+for (i in 1:length(level)) {
+  if (substr(level[i], 1, 3) == 'chr') {
+    sub <- substr(level[i], 4, nchar(level[i]))
+    if (!is.na(suppressWarnings(as.integer(sub)))) {
+      intChr <- c(intChr, as.numeric(sub))
+    } else {
+      strChr <- c(strChr, sub)
+    }
+  } else {
+    sub <- level[i]
+    if (!is.na(suppressWarnings(as.integer(sub)))) {
+      intLev <- c(intLev, as.numeric(sub))
+    } else {
+      strLev <- c(strLev, sub)
+    }
+  }
+}
+# put numeric chroms first, then strings
+chrOrder <- c(paste('chr', levels(factor(intChr)), sep=''),
+  levels(factor(intLev)),
+  paste('chr', levels(factor(strChr)), sep=''),
+  levels(factor(strLev)))
+data$chr <- factor(data$chr, levels=chrOrder)
 
 # determine columns for samples
 idx <- list()
@@ -163,7 +202,7 @@ for (i in names(samples)) {
   }
 }
 
-# create data frames for each sample
+# for each sample, create data frames to meet DSS requirements
 frames <- list()
 for (i in names(samples)) {
   for (j in 1:length(samples[[ i ]])) {
@@ -175,7 +214,6 @@ for (i in names(samples)) {
 }
 
 # perform DML pairwise tests using DSS
-Sys.time()
 bsdata <- makeBSseqData(frames, names(frames))
 res <- data[, keep]  # results table
 comps <- c()  # group comparison strings
@@ -187,10 +225,16 @@ for (i in 1:(length(samples)-1)) {
       '" to group "', names(samples)[j], '"\n', sep='')
     dml <- DMLtest(bsdata, group1=samples[[ i ]], group2=samples[[ j ]])
 
-    # remove extraneous columns
-    for (col in colnames(dml)) {
-      if (! col %in% dss && ! substr(col, 1, nchar(col)-1) %in% dss) {
-        dml[, col] <- NULL
+    # make sure necessary columns are present, remove extraneous
+    col <- colnames(dml)
+    for (d in dss) {
+      if (! d %in% col && ! paste(d, '1', sep='') %in% col) {
+        stop('Missing column from DSS result: ', d, '\n')
+      }
+    }
+    for (c in col) {
+      if (! c %in% dss && ! substr(c, 1, nchar(c)-1) %in% dss) {
+        dml[, c] <- NULL
       }
     }
 
@@ -220,7 +264,6 @@ for (i in 1:(length(samples)-1)) {
 }
 
 # remove regions without min. number of CpG sites
-Sys.time()
 cat('Filtering results\n')
 if (minCpG > 1) {
   res <- res[which(res$CpG >= minCpG), ]
@@ -256,7 +299,7 @@ res <- res[, c(keep, sampleCols, groupCols)]
 
 # determine which rows are valid -- need only one
 #   comparison to meet threshold(s)
-rows <- rep(T, nrow(res))
+rows <- logical(length=nrow(res))
 if (na) {
   # exclude only lines that are *all* 'NA'
   for (n in 1:nrow(res)) {
@@ -277,7 +320,7 @@ if (na) {
     for (comp in comps) {
       diff <- res[n, paste(comp, 'diff', sep=':')]
       if (is.na(diff) || abs(diff) < minDiff ||
-          (up && diff < 0) || (down && diff > 0)) {
+          (up && diff > 0) || (down && diff < 0)) {
         valid <- F
         next
       }
@@ -297,14 +340,10 @@ if (na) {
       break
     }
     rows[n] <- valid
-#    if (! valid) {
-#      rows[n] <- F
-#    }
   }
 }
 
 # write output results
-Sys.time()
 cat('Producing output file', outfile, '\n')
 options(scipen=999)
 for (col in c(sampleCols, groupCols)) {
@@ -317,4 +356,3 @@ for (col in c(sampleCols, groupCols)) {
   }
 }
 write.table(res[rows, ], outfile, sep='\t', quote=F, row.names=F)
-Sys.time()
