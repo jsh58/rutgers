@@ -3,48 +3,50 @@
 # Finding DMRs using the R package 'DSS'.
 
 usage <- function() {
-  cat('Usage: Rscript findDMRs.r  [options]  -i <input>  -o <output>  \\    \n',
-    '         <groupList1>  <groupList2>  [...]                             \n',
-    '    <groupList>  Comma-separated list of sample names (as found in     \n',
-    '                   the header of <input>, with "-N" and "-X")          \n',
-    '    <input>      File listing genomic regions and methylation results  \n',
-    '                   (output from combineRegions5.py)                    \n',
-    '  Options:                                                             \n',
-    '    -n <str>     Comma-separated list of group names (in the same      \n',
-    '                   order as the <groupLists>; def. group names are     \n',
-    '                   constructed from sample names joined by "_")        \n',
-    '    -x <str>     Comma-separated list of column names in <input> to    \n',
-    '                   copy to <output>, in addition to the default        \n',
-    '                   ("chr", "start", "end", "CpG")                      \n',
-    '    -s <str>     Comma-separated list of column names in DSS output    \n',
-    '                   to copy to <output>, in addition to the default     \n',
-    '                   ("mu", "diff", "pval")                              \n',
-    '    -c <int>     Minimum number of CpGs in a region (def. 1)           \n',
-    '    -d <float>   Minimum methylation difference between sample groups  \n',
-    '                   ([0-1]; def. 0 [all results reported])              \n',
-    '    -p <float>   Maximum p-value ([0-1]; def. 1 [all results reported])\n',
-    '    -q <float>   Maximum q-value ([0-1]; def. 1 [all results reported])\n',
-    '                   ("fdr" automatically added to -s list)              \n',
-#    -up          Report only regions hypermethylated in later group
-#    -down        Report only regions hypomethylated in later group
-#    -dna         Report regions whose diff is 'NA' (occurs when one
-#                   group has no methylation data)
-#    -pna         Report regions whose p-value is 'NA' (occurs when one
-#                   group does not have multiple data points)
-
-    '\n')
-
+  cat('Usage: Rscript findDMRs.r  [options]  -i <input>  -o <output>  \\
+             <groupList1>  <groupList2>  [...]
+    <groupList>  Comma-separated list of sample names (as found in
+                   the header of <input>, with "-N" and "-X") --
+                   at least two such lists must be provided
+    <input>      File listing genomic regions and methylation counts
+                   (output from combineRegions.py)
+    <output>     File listing genomic regions and methylation results:
+                   - for each group: average methylation fraction
+                   - for each group->group comparison: methylation
+                     difference and p-value
+                   Other DSS results can be added using -s (see below)
+  Options:
+    -m <str>     Comma-separated list of group names (in the same
+                   order as the <groupLists>; def. group names are
+                   constructed from sample names joined by "_")
+    -x <str>     Comma-separated list of column names in <input> to
+                   copy to <output>, in addition to the default
+                   ("chr", "start", "end", "CpG")
+    -s <str>     Comma-separated list of column names in DSS output
+                   to copy to <output>, in addition to the default
+                   ("mu", "diff", "pval")
+    -c <int>     Minimum number of CpGs in a region (def. 1)
+    -d <float>   Minimum methylation difference between sample groups
+                   ([0-1]; def. 0 [all results reported])
+    -p <float>   Maximum p-value ([0-1]; def. 1 [all results reported])
+    -q <float>   Maximum q-value ([0-1]; def. 1 [all results reported])
+                   ("fdr" automatically added to -s list)
+    -up          Report only regions hypermethylated in later group
+    -down        Report only regions hypomethylated in later group
+    -na          Report regions even if DSS results (diff / p-value /
+                   q-value) are "NA" (ignoring -d, -p, -q, -up, -down)
+')
   q()
 }
 
 # default args/parameters
 infile <- outfile <- groups <- NULL
 names <- list()
-minCpG <- 1        # min. number of CpGs
-minDiff <- 0       # min. methylation difference
-maxPval <- 1       # max. p-value
-maxQval <- 1       # max. q-value (fdr)
-up <- down <- 0    # report only hyper- or hypo-methylated results
+minCpG <- 1            # min. number of CpGs
+minDiff <- 0           # min. methylation difference
+maxPval <- 1           # max. p-value
+maxQval <- 1           # max. q-value (fdr)
+na <- up <- down <- F  # report NA/hyper-/hypo- methylated results
 keep <- c('chr', 'start', 'end', 'CpG')  # columns of input to keep
 dss <- c('chr', 'pos', 'mu', 'diff', 'pval') # columns of DSS output to keep
 
@@ -55,35 +57,44 @@ if (length(args) < 4) {
 }
 i <- 1
 while (i < length(args) + 1) {
-  if (substr(args[i], 1, 1) == '-' && i < length(args)) {
-    if (args[i] == '-i') {
-      infile <- args[i + 1]
-    } else if (args[i] == '-o') {
-      outfile <- args[i + 1]
-    } else if (args[i] == '-n') {
-      groups <- strsplit(args[i + 1], '[ ,]')[[1]]
-    } else if (args[i] == '-x') {
-      keep <- c(keep, strsplit(args[i + 1], '[ ,]')[[1]])
-    } else if (args[i] == '-s') {
-      dss <- c(dss, strsplit(args[i + 1], '[ ,]')[[1]])
-    } else if (args[i] == '-c') {
-      minCpG <- as.integer(args[i + 1])
-    } else if (args[i] == '-d') {
-      minDiff <- as.double(args[i + 1])
-    } else if (args[i] == '-p') {
-      maxPval <- as.double(args[i + 1])
-    } else if (args[i] == '-q') {
-      maxQval <- as.double(args[i + 1])
-      dss <- c(dss, 'fdr')
+  if (substr(args[i], 1, 1) == '-') {
+    if (args[i] == '-na') {
+      na <- T
+    } else if (args[i] == '-up') {
+      up <- T
+    } else if (args[i] == '-down') {
+      down <- T
     } else if (args[i] == '-h') {
       usage()
+    } else if (i < length(args)) {
+      if (args[i] == '-i') {
+        infile <- args[i + 1]
+      } else if (args[i] == '-o') {
+        outfile <- args[i + 1]
+      } else if (args[i] == '-m') {
+        groups <- strsplit(args[i + 1], '[ ,]')[[1]]
+      } else if (args[i] == '-x') {
+        keep <- c(keep, strsplit(args[i + 1], '[ ,]')[[1]])
+      } else if (args[i] == '-s') {
+        dss <- c(dss, strsplit(args[i + 1], '[ ,]')[[1]])
+      } else if (args[i] == '-c') {
+        minCpG <- as.integer(args[i + 1])
+      } else if (args[i] == '-d') {
+        minDiff <- as.double(args[i + 1])
+      } else if (args[i] == '-p') {
+        maxPval <- as.double(args[i + 1])
+      } else if (args[i] == '-q') {
+        maxQval <- as.double(args[i + 1])
+        dss <- c(dss, 'fdr')
+      } else {
+        cat('Error! Unknown parameter:', args[i], '\n')
+        usage()
+      }
+      i <- i + 1
     } else {
-      cat('Error! Unknown parameter:', args[i], '\n')
+      cat('Error! Unknown parameter with no arg:', args[i], '\n')
       usage()
     }
-    i <- i + 1
-  } else if (args[i] == '-h') {
-    usage()
   } else {
     names <- c(names, strsplit(args[i], '[ ,]'))
   }
@@ -246,31 +257,49 @@ res <- res[, c(keep, sampleCols, groupCols)]
 # determine which rows are valid -- need only one
 #   comparison to meet threshold(s)
 rows <- rep(T, nrow(res))
-for (n in 1:nrow(res)) {
-  valid <- T
-  for (comp in comps) {
-    diff <- res[n, paste(comp, 'diff', sep=':')]
-    if (is.na(diff) || abs(diff) < minDiff) {
-      valid <- F
-      next
+if (na) {
+  # exclude only lines that are *all* 'NA'
+  for (n in 1:nrow(res)) {
+    valid <- F
+    for (i in names(samples)) {
+      mu <- res[n, paste(i, 'mu', sep=':')]
+      if (! is.na(mu)) {
+        valid <- T
+        break
+      }
     }
-    pval <- res[n, paste(comp, 'pval', sep=':')]
-    if (is.na(pval) || pval > maxPval) {
-      valid <- F
-      next
-    }
-    if (maxQval < 1) {
-      qval <- res[n, paste(comp, 'fdr', sep=':')]
-      if (is.na(qval) || qval > maxQval) {
+    rows[n] <- valid
+  }
+} else {
+  # for each comparison, check diff, pval, fdr (optional)
+  for (n in 1:nrow(res)) {
+    valid <- T
+    for (comp in comps) {
+      diff <- res[n, paste(comp, 'diff', sep=':')]
+      if (is.na(diff) || abs(diff) < minDiff ||
+          (up && diff < 0) || (down && diff > 0)) {
         valid <- F
         next
       }
+      pval <- res[n, paste(comp, 'pval', sep=':')]
+      if (is.na(pval) || pval > maxPval) {
+        valid <- F
+        next
+      }
+      if (maxQval < 1) {
+        qval <- res[n, paste(comp, 'fdr', sep=':')]
+        if (is.na(qval) || qval > maxQval) {
+          valid <- F
+          next
+        }
+      }
+      valid <- T
+      break
     }
-    valid <- T
-    break
-  }
-  if (! valid) {
-    rows[n] <- F
+    rows[n] <- valid
+#    if (! valid) {
+#      rows[n] <- F
+#    }
   }
 }
 
