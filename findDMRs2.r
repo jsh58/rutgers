@@ -16,7 +16,7 @@ usage <- function() {
                      difference and p-value
                    Other DSS results can be added using -s (see below)
   Options:
-    -m <str>     Comma-separated list of group names (in the same
+    -n <str>     Comma-separated list of group names (in the same
                    order as the <groupLists>; def. group names are
                    constructed from sample names joined by "_")
     -k <str>     Comma-separated list of column names in <input> to
@@ -33,8 +33,11 @@ usage <- function() {
                    ("fdr" automatically added to -s list)
     -up          Report only regions hypermethylated in later group
     -down        Report only regions hypomethylated in later group
-    -na          Report regions even if DSS results (diff / p-value /
-                   q-value) are "NA" (ignoring -d, -p, -q, -up, -down)
+    -t <int>     Report regions that have at least <int> comparisons
+                   that meet the -d/-p/-q/-up/-down threshold(s)
+                   (def. 1; specifying "-t 0" means all regions will
+                   be reported, regardless of the parameters or if
+                   DSS results are all "NA")
 ')
   q()
 }
@@ -46,7 +49,8 @@ minCpG <- 1            # min. number of CpGs
 minDiff <- 0           # min. methylation difference
 maxPval <- 1           # max. p-value
 maxQval <- 1           # max. q-value (fdr)
-na <- up <- down <- F  # report NA/hyper-/hypo- methylated results
+up <- down <- F        # report NA/hyper-/hypo- methylated results
+tCount <- 1            # min. number of significant comparisons
 keep <- c('chr', 'start', 'end', 'CpG')  # columns of input to keep
 dss <- c('chr', 'pos', 'mu', 'diff', 'pval') # columns of DSS output to keep
 
@@ -58,9 +62,7 @@ if (length(args) < 6) {
 i <- 1
 while (i < length(args) + 1) {
   if (substr(args[i], 1, 1) == '-') {
-    if (args[i] == '-na') {
-      na <- T
-    } else if (args[i] == '-up') {
+    if (args[i] == '-up') {
       up <- T
     } else if (args[i] == '-down') {
       down <- T
@@ -71,7 +73,7 @@ while (i < length(args) + 1) {
         infile <- args[i + 1]
       } else if (args[i] == '-o') {
         outfile <- args[i + 1]
-      } else if (args[i] == '-m') {
+      } else if (args[i] == '-n') {
         groups <- strsplit(args[i + 1], '[ ,]')[[1]]
       } else if (args[i] == '-k') {
         keep <- c(keep, strsplit(args[i + 1], '[ ,]')[[1]])
@@ -86,6 +88,8 @@ while (i < length(args) + 1) {
       } else if (args[i] == '-q') {
         maxQval <- as.double(args[i + 1])
         dss <- c(dss, 'fdr')
+      } else if (args[i] == '-t') {
+        tCount <- as.integer(args[i + 1])
       } else {
         cat('Error! Unknown parameter:', args[i], '\n')
         usage()
@@ -302,35 +306,35 @@ res <- res[, c(keep, sampleCols, groupCols)]
 # determine which rows are valid -- need only one
 #   comparison to meet threshold(s)
 rows <- logical(length=nrow(res))
-if (na) {
+if (tCount == 0) {
   rows <- rep(T, length(rows))
 } else {
   # for each comparison, check diff, pval, fdr (optional)
   for (n in 1:nrow(res)) {
-    valid <- T
+    valid <- c()
     for (comp in comps) {
       diff <- res[n, paste(comp, 'diff', sep=':')]
       if (is.na(diff) || abs(diff) < minDiff ||
           (up && diff > 0) || (down && diff < 0)) {
-        valid <- F
+        valid <- c(valid, F)
         next
       }
       pval <- res[n, paste(comp, 'pval', sep=':')]
       if (is.na(pval) || pval > maxPval) {
-        valid <- F
+        valid <- c(valid, F)
         next
       }
       if (maxQval < 1) {
         qval <- res[n, paste(comp, 'fdr', sep=':')]
         if (is.na(qval) || qval > maxQval) {
-          valid <- F
+          valid <- c(valid, F)
           next
         }
       }
-      valid <- T
-      break
+      valid <- c(valid, T)
+      #break
     }
-    rows[n] <- valid
+    rows[n] <- sum(valid) >= tCount
   }
 }
 
