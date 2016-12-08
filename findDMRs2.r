@@ -19,7 +19,7 @@ usage <- function() {
     -m <str>     Comma-separated list of group names (in the same
                    order as the <groupLists>; def. group names are
                    constructed from sample names joined by "_")
-    -x <str>     Comma-separated list of column names in <input> to
+    -k <str>     Comma-separated list of column names in <input> to
                    copy to <output>, in addition to the default
                    ("chr", "start", "end", "CpG")
     -s <str>     Comma-separated list of column names in DSS output
@@ -73,7 +73,7 @@ while (i < length(args) + 1) {
         outfile <- args[i + 1]
       } else if (args[i] == '-m') {
         groups <- strsplit(args[i + 1], '[ ,]')[[1]]
-      } else if (args[i] == '-x') {
+      } else if (args[i] == '-k') {
         keep <- c(keep, strsplit(args[i + 1], '[ ,]')[[1]])
       } else if (args[i] == '-s') {
         dss <- c(dss, strsplit(args[i + 1], '[ ,]')[[1]])
@@ -106,6 +106,12 @@ if (is.null(infile) || is.null(outfile)) {
   cat('Error! Must specify input and output files\n')
   usage()
 }
+input <- tryCatch( file(infile, 'r'), warning=NULL,
+  error=function(e) stop('Cannot read input file ',
+  infile, '\n', call.=F) )
+output <- tryCatch( file(outfile, 'w'), warning=NULL,
+  error=function(e) stop('Cannot write to output file ',
+  outfile, '\n', call.=F) )
 if (length(names) < 2) {
   cat('Error! Must specify at least two groups of samples\n')
   usage()
@@ -133,7 +139,7 @@ suppressMessages(library(DSS))
 
 # load data
 cat('Loading methylation data from', infile, '\n')
-data <- read.csv(infile, sep='\t', header=T, check.names=F)
+data <- read.csv(input, sep='\t', header=T, check.names=F)
 for (k in keep) {
   if (! k %in% colnames(data)) {
     stop('Missing column in input file ', infile, ': ', k, '\n')
@@ -227,16 +233,12 @@ for (i in 1:(length(samples)-1)) {
 
     # make sure necessary columns are present, remove extraneous
     col <- colnames(dml)
-    for (d in dss) {
-      if (! d %in% col && ! paste(d, '1', sep='') %in% col) {
-        stop('Missing column from DSS result: ', d, '\n')
-      }
+    if (any( ! dss %in%col & ! paste(dss, '1', sep='') %in%col)) {
+      stop('Missing column(s) from DSS result: ',
+        paste(dss[! dss %in%col & ! paste(dss, '1', sep='') %in%col],
+        collapse=', '), '\n')
     }
-    for (c in col) {
-      if (! c %in% dss && ! substr(c, 1, nchar(c)-1) %in% dss) {
-        dml[, c] <- NULL
-      }
-    }
+    dml[, ! col %in% dss & ! substr(col, 1, nchar(col)-1) %in% dss] <- NULL
 
     # add results to res
     start <- ncol(res) + 1
@@ -301,18 +303,7 @@ res <- res[, c(keep, sampleCols, groupCols)]
 #   comparison to meet threshold(s)
 rows <- logical(length=nrow(res))
 if (na) {
-  # exclude only lines that are *all* 'NA'
-  for (n in 1:nrow(res)) {
-    valid <- F
-    for (i in names(samples)) {
-      mu <- res[n, paste(i, 'mu', sep=':')]
-      if (! is.na(mu)) {
-        valid <- T
-        break
-      }
-    }
-    rows[n] <- valid
-  }
+  rows <- rep(T, length(rows))
 } else {
   # for each comparison, check diff, pval, fdr (optional)
   for (n in 1:nrow(res)) {
@@ -355,4 +346,4 @@ for (col in c(sampleCols, groupCols)) {
     res[, col] <- round(res[, col], digits=7)
   }
 }
-write.table(res[rows, ], outfile, sep='\t', quote=F, row.names=F)
+write.table(res[rows, ], output, sep='\t', quote=F, row.names=F)
