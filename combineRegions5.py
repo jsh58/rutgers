@@ -1,7 +1,10 @@
 #!/usr/bin/python
 
 # JMG 4/22/16
-# Combining regions for a set of bismark cov files.
+
+# Combining multiple samples' methylation data
+#   at individual CpG sites into a single set of
+#   genomic regions.
 
 import sys
 import os.path
@@ -9,11 +12,11 @@ import gzip
 import math
 
 def usage():
-  print '''Usage: python combineRegions5.py  [options]  -o <outfile>  <infile(s)>
-    <outfile>     Output file listing combined regions (for each: genomic
+  print '''Usage: python combineRegions.py  [options]  -o <output>  <input(s)>
+    -o <output>   Output file listing genomic regions (for each: genomic
                     position [chrom, start, end], number of CpGs, and
                     methylation data for each sample, tab-delimited)
-    <infile(s)>   One or more files listing methylation counts at each
+    <input(s)>    One or more files listing methylation counts at each
                     genomic position (produced by SAMtoCOV.py, or
                     coverage2cytosine from Bismark)
   Options:

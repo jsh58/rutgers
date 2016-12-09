@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 # JMG 7/21/16
-# Producing methylation summary information
+# Producing a table of methylation counts
 #   directly from a SAM file made by Bismark.
 
 import sys
@@ -10,37 +10,37 @@ import re
 import gzip
 
 def usage():
-  print '''Usage: python SAMtoCOV.py  -i <SAM>  -o <OUT>  [options]
-    -i <SAM>  SAM alignment file produced by Bismark.
-                Can use '-' for stdin, but must specify '-h'
-                with samtools view, e.g.:
-              samtools view -h <BAM> | python SAMtoCOV.py -i - -o <OUT>
-    -o <OUT>  Output file listing counts of methylated and
-                unmethylated CpGs, merged and sorted. Each
-                line of the output lists the following six
-                values for a single genomic CpG, tab-delimited:
-              <chrom>          the chromosome name;
-              <start>,<end>    the 1-based position of the 'C' in
-                                 the CpG;
-              <strand>         '+' (invariable for this merged file);
-              <meth>,<unmeth>  Counts of methylated and unmethylated
-                                 bases.
+  print '''Usage: python SAMtoCOV.py  [options]  -i <input>  -o <output>
+    -i <input>   SAM alignment file produced by Bismark.
+                   Can use '-' for stdin, but must specify '-h'
+                   with samtools view, e.g.:
+                 samtools view -h <BAM> | python SAMtoCOV.py -i - -o <OUT>
+    -o <output>  Output file listing counts of methylated and
+                   unmethylated CpGs, merged and sorted. Each
+                   line of the output lists the following six
+                   values for a single genomic CpG, tab-delimited:
+                 <chrom>          the chromosome name;
+                 <start>,<end>    the 1-based position of the 'C' in
+                                    the CpG;
+                 <strand>         '+' (invariable for this merged file);
+                 <meth>,<unmeth>  Counts of methylated and unmethylated
+                                    bases.
   Options:
-    -m <int>  Minimum coverage (methylation counts) to report a CpG
-                (def. 1 [all sites reported])
-    -pct      Replace <strand> with methylation percent in the
-                output file (fourth column)
-    -b <file> BED file listing regions for which to collect linked
-                methylation data. The output file, <file>_linked.txt,
-                will give, for each region, the locations of the CpG
-                sites and the methylation information of each read
-                at those sites ('0' = unmethylated; '1' = methylated;
-                '-' = no data). For example:
-                  Region: ampliconA, chrZ:100-200
-                  Sites: 102, 109, 123, 140, 147, 168
-                  00100-  read1
-                  001100  read2
-                  --0000  read3'''
+    -m <int>     Minimum coverage (methylation counts) to report a CpG
+                   (def. 1 [all sites reported])
+    -pct         Replace <strand> with methylation percent in the
+                   output file (fourth column)
+    -b <file>    BED file listing regions for which to collect linked
+                   methylation data. The output file, <file>_linked.txt,
+                   will give, for each region, the locations of the CpG
+                   sites and the methylation information of each read
+                   at those sites ('0' = unmethylated; '1' = methylated;
+                   '-' = no data). For example:
+                     Region: ampliconA, chrZ:100-200
+                     Sites: 102, 109, 123, 140, 147, 168
+                     00100-  read1
+                     001100  read2
+                     --0000  read3'''
   sys.exit(-1)
 
 def getInt(arg):

@@ -235,7 +235,13 @@ for (i in 1:(length(samples)-1)) {
     comps <- c(comps, comp)
     cat('Comparing group "', names(samples)[i],
       '" to group "', names(samples)[j], '"\n', sep='')
-    dml <- DMLtest(bsdata, group1=samples[[ i ]], group2=samples[[ j ]])
+    if (length(samples[[ i ]]) < 2 || length(samples[[ j ]]) < 2) {
+      # without replicates, must set equal.disp=T
+      dml <- DMLtest(bsdata, group1=samples[[ i ]], group2=samples[[ j ]],
+        equal.disp=T)
+    } else {
+      dml <- DMLtest(bsdata, group1=samples[[ i ]], group2=samples[[ j ]])
+    }
 
     # make sure necessary columns are present, remove extraneous
     col <- colnames(dml)
@@ -256,13 +262,13 @@ for (i in 1:(length(samples)-1)) {
     if (maxQval < 1) {
       mat[, length(comps)] <- ! (is.na(res[, 'diff'])
         | abs(res[, 'diff']) < minDiff
-        | (up && res[, 'diff'] > 0) | (down && res[, 'diff'] < 0)
+        | (up & res[, 'diff'] > 0) | (down & res[, 'diff'] < 0)
         | is.na(res[, 'pval']) | res[, 'pval'] > maxPval
         | is.na(res[, 'fdr']) | res[, 'fdr'] > maxQval)
     } else {
       mat[, length(comps)] <- ! (is.na(res[, 'diff'])
         | abs(res[, 'diff']) < minDiff
-        | (up && res[, 'diff'] > 0) | (down && res[, 'diff'] < 0)
+        | (up & res[, 'diff'] > 0) | (down & res[, 'diff'] < 0)
         | is.na(res[, 'pval']) | res[, 'pval'] > maxPval)
     }
 
@@ -327,3 +333,4 @@ for (col in c(sampleCols, groupCols)) {
   }
 }
 write.table(res, output, sep='\t', quote=F, row.names=F)
+cat('Regions reported:', nrow(res), '\n')
