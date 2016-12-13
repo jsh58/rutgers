@@ -81,7 +81,7 @@ def getInt(arg):
   return val
 
 def splitRegion(chrom, reg, count, minCpG, minReg, \
-    maxLen, samples, fOut):
+    maxLen, samples, fraction, fOut):
   '''
   Split a CpG region that is too large and process
     each subregion via processRegion().
@@ -118,7 +118,7 @@ def splitRegion(chrom, reg, count, minCpG, minReg, \
   for end in ends:
     # pass to processRegion()
     total += processRegion(chrom, reg[start:end], count, minCpG,
-      minReg, float('inf'), samples, fOut)
+      minReg, float('inf'), samples, fraction, fOut)
     start = end
 
   return total
@@ -145,7 +145,7 @@ def processRegion(chrom, reg, count, minCpG, minReg, \
   # split region larger than maxLen
   if reg[-1] - reg[0] > maxLen:
     return splitRegion(chrom, reg, count, minCpG, minReg, \
-      maxLen, samples, fOut)
+      maxLen, samples, fraction, fOut)
 
   flag = 0  # boolean for printing line
   res = '%s\t%d\t%d\t%d' % (chrom, reg[0], reg[-1], len(reg))

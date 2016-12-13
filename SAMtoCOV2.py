@@ -168,7 +168,7 @@ def printOutput(fOut, genome, meth, minCov, pct):
       if pct:
         # 4th column is percent methylated
         fOut.write('%s\t%d\t%d\t%.6f\t%d\t%d\n' % (chrom, loc, loc+1,
-          100.0 * meth[chrom][loc][0] / total,
+          100.0 * meth[chrom][loc][1] / total,
           meth[chrom][loc][1], meth[chrom][loc][0]))
       else:
         # 4th column is strand ('+')
