@@ -49,7 +49,7 @@ def main():
 
   pos = {}  # dict of positions
   first = {}
-  count = dups = uniq = notSeq = 0
+  count = dupSeq = dupPos = uniq = 0
   for line in f:
     if line[0] == '@':
       if out: fOut.write(line)
@@ -65,17 +65,17 @@ def main():
       rc = 1
 
     if (chr, loc, rc) in pos:
-      flag = 1
+      flag = True
       for seq in pos[(chr, loc, rc)]:
         if seq[0] == spl[9]:
           seq[1] += 1
-          dups += 1
-          flag = 0
+          dupSeq += 1
+          flag = False
           break
       if flag:
         pos[(chr, loc, rc)].append([spl[9], 1])
         first[(chr, loc, rc, spl[9])] = line
-        uniq += 1
+        dupPos += 1
       #pos[(chr, loc, rc)][spl[9]] = pos[(chr, loc, rc)].get(spl[9], 0) + 1
 
     else:
@@ -99,9 +99,10 @@ def main():
     fOut.close()
 
 
-  sys.stderr.write('Reads: %10d\n' % count)
-  sys.stderr.write('Unique: %9d\n' % uniq)
-  sys.stderr.write('Dups: %11d\n' % dups)
+  sys.stderr.write('Reads: %12d\n' % count)
+  sys.stderr.write('  Dup seq: %8d\n' % dupSeq)
+  sys.stderr.write('  Dup pos: %8d\n' % dupPos)
+  sys.stderr.write('  Unique: %9d\n' % uniq)
   #sys.stderr.write('NotSeq: %9d\n' % notSeq)
 
 if __name__ == '__main__':
