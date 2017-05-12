@@ -80,7 +80,8 @@ def loadBED(fBed):
   fBed.close()
   return bed
 
-def createReads(f, gen, bed, reg, length, lengthDNA, lengthRead, number):
+def createReads(fOut1, fOut2, gen, bed, reg, length,
+    lengthDNA, lengthRead, number, paired):
 
   sys.stderr.write('Creating reads...\n')
 
@@ -120,26 +121,35 @@ def createReads(f, gen, bed, reg, length, lengthDNA, lengthRead, number):
       if random.random() < prob:
         # randomly choose which end of fragment to sequence
         if random.random() < 0.5:
-          seq = gen[chrom][pos:pos+lengthRead]
+          fwd = gen[chrom][pos:pos+lengthRead]
+          rev = revComp(gen[chrom][pos+lengthDNA-lengthRead:pos+lengthDNA])
           strand = 'fwd'
         else:
-          seq = revComp(gen[chrom][pos+lengthDNA-lengthRead:pos+lengthDNA])
+          fwd = revComp(gen[chrom][pos+lengthDNA-lengthRead:pos+lengthDNA])
+          rev = gen[chrom][pos:pos+lengthRead]
           strand = 'rev'
 
         # skip if sequence has an 'N'
-        if seq.find('N') != -1:
+        if fwd.find('N') != -1 or (paired and rev.find('N') != -1):
           continue
 
         # print fastq read
-        f.write('@read' + ' '.join([str(i), chrom, \
+        fOut1.write('@read' + ' '.join([str(i), chrom, \
           str(pos) + '-' + str(pos+lengthDNA), strand]) \
-          + '\n' + seq.upper() \
+          + '\n' + fwd.upper() \
           + '\n+\n' + 'I'*lengthRead + '\n')
+        if paired:
+          fOut2.write('@read' + ' '.join([str(i), chrom, \
+            str(pos) + '-' + str(pos+lengthDNA), strand]) \
+            + '\n' + rev.upper() \
+            + '\n+\n' + 'I'*lengthRead + '\n')
         break
 
       # if read isn't printed, start over again
 
-  f.close()
+  fOut1.close()
+  if fOut2 != None:
+    fOut2.close()
 
 def main():
   args = sys.argv[1:]
@@ -151,21 +161,31 @@ def main():
       + '  <out>   Fastq output\n' \
       + '  <len1>  Length of DNA fragments\n' \
       + '  <len2>  Length of reads\n' \
-      + '  <cov>   Number of reads\n')
+      + '  <cov>   Number of reads\n'\
+      + '  [pe]    Option to produce PE reads\n')
     sys.exit(-1)
 
   fIn = open(args[0], 'rU')
   fBed = open(args[1], 'rU')
-  fOut = open(args[2], 'w')
   lengthDNA = int(args[3])
   lengthRead = int(args[4])
   coverage = int(args[5])
+  paired = False
+  if len(args) > 6 and args[6] == 'pe':
+    paired = True
+  if paired:
+    fOut1 = open(args[2] + '_R1.fastq', 'w')
+    fOut2 = open(args[2] + '_R2.fastq', 'w')
+  else:
+    fOut1 = open(args[2], 'w')
+    fOut2 = None
 
   # produce reads
   gen, length = loadGenome(fIn)
   reg = createRegions(length)
   bed = loadBED(fBed)
-  createReads(fOut, gen, bed, reg, length, lengthDNA, lengthRead, coverage)
+  createReads(fOut1, fOut2, gen, bed, reg, length,
+    lengthDNA, lengthRead, coverage, paired)
 
 if __name__ == '__main__':
   main()
