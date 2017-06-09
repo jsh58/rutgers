@@ -252,7 +252,7 @@ def findDupsSE(fOut, readsSE, repSE, scoreSE):
   Find duplicates in single-end reads.
   '''
   # repSE dict already has single-end versions of PE alignments
-  print 'SE-aligned fragments:%11d' % len(readsSE)
+  sys.stderr.write('SE-aligned fragments:%11d\n' % len(readsSE))
   dups = 0
   for r in sorted(scoreSE, key=scoreSE.get, reverse=True):
     printed = 0  # boolean: 1 -> read classified a duplicate
@@ -270,13 +270,13 @@ def findDupsSE(fOut, readsSE, repSE, scoreSE):
       for aln in readsSE[r]:
         repSE[aln] = r
 
-  print '  duplicates:%19d' % dups
+  sys.stderr.write('  duplicates:%19d\n' % dups)
 
 def findDups(fOut, readsSE, readsPE, scoreSE, scorePE):
   '''
   Find duplicates in paired-end alignments.
   '''
-  print 'PE-aligned fragments:%11d' % len(readsPE)
+  sys.stderr.write('PE-aligned fragments:%11d\n' % len(readsPE))
   dups = 0
   rep = {}    # for saving PE alignments (to compare against)
   repSE = {}  # for saving each SE alignment
@@ -315,7 +315,7 @@ def findDups(fOut, readsSE, readsPE, scoreSE, scorePE):
         if aln1 not in repSE:
           repSE[aln1] = r
 
-  print '  duplicates:%19d' % dups
+  sys.stderr.write('  duplicates:%19d\n' % dups)
 
   # find single-end duplicates
   findDupsSE(fOut, readsSE, repSE, scoreSE)
@@ -396,8 +396,8 @@ def processSAM(f, fOut):
       if primary:
         scorePE[spl[0]] = scorePE.get(spl[0], 0) + getScore(spl[10])
 
-  print 'Total alignments:%15d' % count
-  print '  Unmapped:%21d' % unmap
+  sys.stderr.write('Total SAM records:%14d\n' % count \
+    + '  Unmapped:%21d\n' % unmap)
 
   # add in missing PE alignments
   addMissing(readsPE, noHI)

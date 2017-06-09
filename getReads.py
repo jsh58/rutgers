@@ -6,6 +6,7 @@
 #   a SAM file.
 
 import sys
+import gzip
 
 def openRead(filename):
   '''
@@ -61,9 +62,9 @@ def main():
   # open SAM files
   fIn = openRead(args[0])
   fOut = openWrite(args[3])
-  yes = 0
+  yes = False
   if args[1] == 'yes':
-    yes = 1
+    yes = True
 
   # process SAM file
   if yes:
