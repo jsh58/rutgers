@@ -38,8 +38,8 @@ def usage():
     Other:
       -f          Report methylation fraction for each sample
       -b          Memory-saving option (may take longer)
-      -e <list>   Comma-separated list of ordered chromosome
-                    names (with -b option)
+      -e <file>   File listing ordered chromosome names (comma-
+                    separated; used only with -b option)
 ''')
   sys.exit(-1)
 
@@ -455,7 +455,7 @@ def main():
   maxLen = 500        # max. length of a combined region
   fraction = False    # report methylated fractions option
   byChrom = False     # process by chromosome (memory saving)
-  chrOrder = []       # order of chromosomes to process
+  chrOrderFile = None # file listing order of chromosomes to process
   verbose = False     # verbose option
 
   # Get command-line args
@@ -486,7 +486,7 @@ def main():
       elif args[i] == '-x':
         maxLen = getInt(args[i+1])
       elif args[i] == '-e':
-        chrOrder = args[i+1].split(',')
+        chrOrderFile = args[i+1]
       elif args[i] == '-o':
         outfile = args[i+1]
       else:
@@ -514,6 +514,14 @@ def main():
 
   # run program
   if byChrom:
+    chrOrder = []   # order of chromosomes to process
+    if chrOrderFile != None:
+      # load chromosome order from given file
+      f = openRead(chrOrderFile)
+      for line in f:
+        chrOrder.extend(line.rstrip().split(','))
+      if f != sys.stdin:
+        f.close()
     printed = processChrom(infiles, files, samples, minReads, \
       minSamples, maxDist, minCpG, minReg, maxLen, fraction, \
       fOut, chrOrder, verbose)
