@@ -38,8 +38,8 @@ def usage():
     Other:
       -f          Report methylation fraction for each sample
       -b          Memory-saving option (may take longer)
-      -e <file>   File listing ordered chromosome names (comma-
-                    separated; used only with -b option)
+      -e <file>   File listing ordered chromosome names (used
+                    only with -b option)
 ''')
   sys.exit(-1)
 
